@@ -5,8 +5,8 @@ rough and based off of the code found from the netdev mailing list circa
 A rough plan is:
 
  - Add sysfs and procfs interfaces
- - Dynamic adding of carp interfaces
-
+ - Support for carp interfaces
+ - Ensure everything is async
 
 Known Issues
  - Only supports a single carp device
