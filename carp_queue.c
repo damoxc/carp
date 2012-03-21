@@ -1,7 +1,8 @@
 /*
  * 	carp_queue.c
  *
- * 2004 Copyright (c) Evgeniy Polyakov <johnpol@xxxxxxxxxxx>
+ * 2004 Copyright (c) Evgeniy Polyakov <xx>
+ * 2012 Copyright (c) Damien Churchill <damoxc@gmail.com>
  * All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
@@ -65,7 +66,10 @@ struct carp_master_task *carp_alloc_task(struct __carp_master_task *t)
 
 static void carp_free_task(struct carp_master_task *t)
 {
-	cancel_delayed_work(&t->work);
+    // TODO: read up and see if this is an okay method to use or not, it was
+    // cancel_delayed_work before, which seems a bit out of place as we aren't
+    // using any delayed work stuff here.
+	cancel_work_sync(&t->work);
 
 	while(atomic_read(&t->task->refcnt))
 		schedule_timeout(10);
