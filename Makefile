@@ -1,5 +1,7 @@
 obj-m		:= ip_carp.o
-ip_carp-objs	:= carp.o carp_log.o carp_queue.o carp_procfs.o
+ip_carp-objs	:= carp.o carp_log.o carp_queue.o carp_debugfs.o carp_procfs.o carp_sysfs.o
+
+CC := colorgcc
 
 KDIR	:= /usr/src/linux-headers-$(shell uname -r)
 PWD	:= $(shell pwd)

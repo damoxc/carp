@@ -1,7 +1,8 @@
 /*
  * 	carp.h
  *
- * 2004 Copyright (c) Evgeniy Polyakov <johnpol@xxxxxxxxxxx>
+ * 2004 Copyright (c) Evgeniy Polyakov <johnpol@2ka.mipt.ru>
+ * 2012 Copyright (c) Damien Churchill <damoxc@gmail.com>
  * All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
@@ -26,6 +27,7 @@
 #include <linux/netdevice.h>
 #include <linux/if.h>
 #include <linux/ip.h>
+#include <linux/proc_fs.h>
 
 #include "carp_ioctl.h"
 
@@ -35,21 +37,23 @@
 #define DRV_DESCRIPTION "Common Address Redundancy Protocol Driver"
 #define DRV_DESC DRV_DESCRIPTION ": v" DRV_VERSION " (" DRV_RELDATE ")\n"
 
-#define IPPROTO_CARP    112
-#define	CARP_VERSION    2
-#define CARP_TTL        255
-#define	CARP_SIG_LEN    20
+#define IPPROTO_CARP           112
+#define	CARP_VERSION             2
+#define CARP_TTL               255
+#define	CARP_SIG_LEN            20
+#define CARP_DEFAULT_TX_QUEUES  16
 
 #define MULTICAST(x)    (((x) & htonl(0xf0000000)) == htonl(0xe0000000))
 #define MULTICAST_ADDR  addr2val(224, 0, 0, 69)
+
+extern int carp_net_id;
 
 /*
  * carp->flags definitions.
  */
 #define CARP_DATA_AVAIL		(1<<0)
 
-struct carp_header
-{
+struct carp_header {
 #if defined(__LITTLE_ENDIAN_BITFIELD)
 	u8	carp_type:4,
 		carp_version:4;
@@ -69,8 +73,7 @@ struct carp_header
 	u8	carp_md[CARP_SIG_LEN];
 };
 
-struct carp_stat
-{
+struct carp_stat {
 	u32	crc_errors;
 	u32	ver_errors;
 	u32	vhid_errors;
@@ -83,8 +86,13 @@ struct carp_stat
 	u32	bytes_sent;
 };
 
-struct carp
-{
+struct carp_net {
+    struct net            *net;
+    struct list_head       dev_list;
+    struct proc_dir_entry *proc_dir;
+};
+
+struct carp {
 	struct net_device_stats stat;
 	struct net_device      *dev, *odev;
 	char                    name[IFNAMSIZ];
@@ -109,8 +117,25 @@ struct carp
 
 	u32                     flags;
 	unsigned short          oflags;
+
+    struct   proc_dir_entry *proc_entry;
+    char     proc_file_name[IFNAMSIZ];
+
+    struct   dentry *debug_dir;
 };
 
+// Implemented in carp_debugfs.c
+void carp_create_debugfs(void);
+void carp_destroy_debugfs(void);
+
+// Implemented in carp_procfs.c
 void carp_create_proc_entry(struct carp *carp);
+void carp_remove_proc_entry(struct carp *carp);
+void __net_init carp_create_proc_dir(struct carp_net *cn);
+void __net_exit carp_destroy_proc_dir(struct carp_net *cn);
+
+// Implemented in carp_sysfs.c
+int carp_create_sysfs(struct carp_net *cn);
+void carp_destroy_sysfs(struct carp_net *cn);
 
 #endif /* __CARP_H */

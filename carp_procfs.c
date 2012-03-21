@@ -20,16 +20,31 @@
  */
 
 #include <linux/proc_fs.h>
+#include <linux/export.h>
+#include <net/net_namespace.h>
+#include <net/netns/generic.h>
 #include "carp.h"
 #include "carp_log.h"
 
 void carp_create_proc_entry(struct carp *carp)
 {
     struct net_device *carp_dev = carp->dev;
-    log("carp: %s", __func__);
 }
 
-void __net_init carp_create_proc_dir(struct net_device *nd)
+void __net_init carp_create_proc_dir(struct carp_net *cn)
 {
-    log("carp: %s", __func__);
+    if (!cn->proc_dir) {
+        cn->proc_dir = proc_mkdir(DRV_NAME, cn->net->proc_net);
+        if (!cn->proc_dir)
+            pr_warning("Warning: cannot create /proc/net/%s\n",
+                DRV_NAME);
+    }
+}
+
+void __net_exit carp_destroy_proc_dir(struct carp_net *cn)
+{
+    if (cn->proc_dir) {
+        remove_proc_entry(DRV_NAME, cn->net->proc_net);
+        cn->proc_dir = NULL;
+    }
 }

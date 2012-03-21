@@ -30,11 +30,13 @@
 /*
  * Initialise sysfs. This sets up the carpctl file in /sys/class/net.
  */
-int carp_create_sysfs()
+int carp_create_sysfs(struct carp_net *cn)
 {
-    int ret;
+    pr_info("carp: %s", __func__);
+    return 0;
+}
 
-    ret = 0;
-
-    return ret;
+void carp_destroy_sysfs(struct carp_net *cn)
+{
+    pr_info("carp: %s", __func__);
 }

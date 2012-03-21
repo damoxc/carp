@@ -25,6 +25,8 @@
 
 #include "carp.h"
 
+#define CONFIG_CARP_DEBUG 1
+
 #ifdef CONFIG_CARP_DEBUG
 #define log(f, a...) printk(KERN_INFO f, ##a)
 #else
