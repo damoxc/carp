@@ -41,6 +41,7 @@
 #define	CARP_SIG_LEN    20
 
 #define MULTICAST(x)    (((x) & htonl(0xf0000000)) == htonl(0xe0000000))
+#define MULTICAST_ADDR  addr2val(224, 0, 0, 69)
 
 /*
  * carp_priv->flags definitions.

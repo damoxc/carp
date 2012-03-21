@@ -597,9 +597,9 @@ static int carp_init(struct net_device *dev)
         }
 	}
 
-	cp->oflags 		= cp->odev->flags;
-	dev->flags 		|= IFF_BROADCAST | IFF_ALLMULTI;
-	cp->odev->flags 	|= IFF_BROADCAST | IFF_ALLMULTI;
+	cp->oflags      = cp->odev->flags;
+	dev->flags      |= IFF_BROADCAST | IFF_ALLMULTI;
+	cp->odev->flags |= IFF_BROADCAST | IFF_ALLMULTI;
 
     dev->netdev_ops = &carp_netdev_ops;
 
@@ -628,9 +628,7 @@ static struct net_protocol carp_protocol = {
 static u32 inline addr2val(u8 a1, u8 a2, u8 a3, u8 a4)
 {
 	u32 ret;
-
 	ret = ((a1 << 24) | (a2 << 16) | (a3 << 8) | (a4 << 0));
-
 	return htonl(ret);
 }
 
@@ -723,6 +721,7 @@ static int __init device_carp_init(void)
 {
 	int err;
 	struct carp_priv *cp;
+    struct in_device *in_d;
 
 	printk(KERN_INFO "carp: %s", DRV_DESC);
 
@@ -744,20 +743,23 @@ static int __init device_carp_init(void)
 
 	cp = netdev_priv(carp_dev);
 	cp->iph.saddr   = addr2val(10, 0, 0, 3);
-	cp->iph.daddr   = addr2val(224, 0, 1, 10);
+	cp->iph.daddr   = MULTICAST_ADDR;
 	cp->iph.tos     = 0;
 	cp->md_timeout  = 3;
 	cp->adv_timeout = 1;
 	cp->state       = INIT;
 
 	spin_lock_init(&cp->lock);
-	printk(KERN_INFO "carp: created spin lock.\n");
 
 	cp->odev = dev_get_by_name(dev_net(carp_dev), "eth0");
 	if (cp->odev)
 	{
-		cp->link      = cp->odev->ifindex;
-		cp->iph.saddr = (in_dev_get(cp->odev))->ifa_list[0].ifa_address;
+		cp->link = cp->odev->ifindex;
+        in_d     = in_dev_get(cp->odev);
+
+        if (in_d != NULL && in_d->ifa_list != NULL) {
+            cp->iph.saddr = in_d->ifa_list[0].ifa_address;
+        }
 	}
 
 	memset(cp->carp_key, 1, sizeof(cp->carp_key));
