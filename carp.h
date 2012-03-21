@@ -33,6 +33,7 @@
 #define DRV_RELDATE     "March 21, 2012"
 #define DRV_NAME        "carp"
 #define DRV_DESCRIPTION "Common Address Redundancy Protocol Driver"
+#define DRV_DESC DRV_DESCRIPTION ": v" DRV_VERSION " (" DRV_RELDATE ")\n"
 
 #define IPPROTO_CARP    112
 #define	CARP_VERSION    2

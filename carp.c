@@ -724,7 +724,7 @@ static int __init device_carp_init(void)
 	int err;
 	struct carp_priv *cp;
 
-	printk(KERN_INFO "CARP driver.\n");
+	printk(KERN_INFO "carp: %s", DRV_DESC);
 
 	carp_dev = alloc_netdev(sizeof(struct carp_priv), "carp0",  carp_setup);
 	if (!carp_dev)
