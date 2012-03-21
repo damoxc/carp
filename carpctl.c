@@ -1,9 +1,9 @@
 /*
  * 	carpctl.c
- * 
+ *
  * 2004 Copyright (c) Evgeniy Polyakov <johnpol@xxxxxxxxxxx>
  * All rights reserved.
- * 
+ *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -61,7 +61,7 @@ int main(int argc, char *argv[])
 	struct carp_ioctl_params p;
 
 	memset(&p, 0, sizeof(p));
-	
+
 	memset(&ifr, 0, sizeof(ifr));
 	strncpy(ifr.ifr_name, devname, sizeof(ifr.ifr_name));
 	ifr.ifr_ifru.ifru_data = (void *)&p;
@@ -73,7 +73,7 @@ int main(int argc, char *argv[])
 				errno, strerror(errno));
 		return -1;
 	}
-	
+
 	err = ioctl(s, SIOC_GETCARPPARAMS, &ifr);
 	if (err == -1)
 	{
@@ -113,7 +113,7 @@ int main(int argc, char *argv[])
 			case 'k':
 				if (strlen(optarg) != sizeof(p.carp_key))
 				{
-					fprintf(stderr, "Wrong key length. Must be %d.\n", sizeof(p.carp_key));
+					fprintf(stderr, "Wrong key length. Must be %lu.\n", sizeof(p.carp_key));
 					return -1;
 				}
 				memcpy(p.carp_key, optarg, sizeof(p.carp_key));
@@ -121,7 +121,7 @@ int main(int argc, char *argv[])
 			case 'p':
 				if (strlen(optarg) != sizeof(p.carp_pad))
 				{
-					fprintf(stderr, "Wrong pad length. Must be %d.\n", sizeof(p.carp_pad));
+					fprintf(stderr, "Wrong pad length. Must be %lu.\n", sizeof(p.carp_pad));
 					return -1;
 				}
 				memcpy(p.carp_pad, optarg, sizeof(p.carp_pad));
@@ -142,9 +142,9 @@ int main(int argc, char *argv[])
 		usage(argv[0]);
 		return -1;
 	}
-	
+
 	ifr.ifr_ifru.ifru_data = (void *)&p;
-	
+
 	err = ioctl(s, SIOC_SETCARPPARAMS, &ifr);
 	if (err == -1)
 	{
