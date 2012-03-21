@@ -6,3 +6,8 @@ A rough plan is:
 
  - Add sysfs and procfs interfaces
  - Dynamic adding of carp interfaces
+
+
+Known Issues
+ - Only supports a single carp device
+ - Causes kernel oops if eth0 isn't configured but does exist
