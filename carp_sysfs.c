@@ -19,8 +19,22 @@
  *
  */
 
-#include <linux/proc_fs.h>
+#include <linux/kernel.h>
+#include <linux/module.h>
 #include <linux/export.h>
+#include <linux/sysfs.h>
 #include <net/net_namespace.h>
 #include <net/netns/generic.h>
 #include "carp.h"
+
+/*
+ * Initialise sysfs. This sets up the carpctl file in /sys/class/net.
+ */
+int carp_create_sysfs()
+{
+    int ret;
+
+    ret = 0;
+
+    return ret;
+}

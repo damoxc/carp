@@ -24,3 +24,13 @@
 #include <net/net_namespace.h>
 #include <net/netns/generic.h>
 #include "carp.h"
+
+void carp_create_proc_entry(struct carp *carp)
+{
+    struct net_device *carp_dev = carp->dev;
+}
+
+void __net_init carp_create_proc_dir(struct net_device *nd)
+{
+
+}
