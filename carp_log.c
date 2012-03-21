@@ -39,8 +39,6 @@
 #include <asm/scatterlist.h>
 #include <asm/delay.h>
 
-#include "carp_crypto.h"
-
 #include "carp.h"
 #include "carp_log.h"
 
