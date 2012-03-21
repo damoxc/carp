@@ -83,30 +83,30 @@ struct carp_stat
 
 struct carp_priv
 {
-	struct net_device_stats	stat;
-	struct net_device	*dev, *odev;
-	char 			name[IFNAMSIZ];
+	struct net_device_stats stat;
+	struct net_device      *dev, *odev;
+	char                    name[IFNAMSIZ];
 
-	int			link, mlink;
-	struct iphdr		iph;
+	int	                    link, mlink;
+	struct iphdr            iph;
 
-	u32			md_timeout, adv_timeout;
-	struct timer_list	md_timer, adv_timer;
+	u32                     md_timeout, adv_timeout;
+	struct timer_list       md_timer, adv_timer;
 
-	enum carp_state		state;
-	struct carp_header 	hdr;
-	struct carp_stat	cstat;
+	enum carp_state         state;
+	struct carp_header      hdr;
+	struct carp_stat        cstat;
 
-	u8			carp_key[CARP_KEY_LEN];
-	u8			carp_pad[CARP_HMAC_PAD_LEN];
-	struct crypto_hash 	*tfm;
+	u8                      carp_key[CARP_KEY_LEN];
+	u8                      carp_pad[CARP_HMAC_PAD_LEN];
+	struct crypto_hash     *tfm;
 
-	u64			carp_adv_counter;
+	u64                     carp_adv_counter;
 
-	spinlock_t		lock;
+	spinlock_t              lock;
 
-	u32			flags;
-	unsigned short		oflags;
+	u32                     flags;
+	unsigned short          oflags;
 };
 
 #endif /* __CARP_H */
