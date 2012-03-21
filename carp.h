@@ -44,7 +44,7 @@
 #define MULTICAST_ADDR  addr2val(224, 0, 0, 69)
 
 /*
- * carp_priv->flags definitions.
+ * carp->flags definitions.
  */
 #define CARP_DATA_AVAIL		(1<<0)
 
@@ -83,7 +83,7 @@ struct carp_stat
 	u32	bytes_sent;
 };
 
-struct carp_priv
+struct carp
 {
 	struct net_device_stats stat;
 	struct net_device      *dev, *odev;
@@ -110,5 +110,7 @@ struct carp_priv
 	u32                     flags;
 	unsigned short          oflags;
 };
+
+void carp_create_proc_entry(struct carp *carp);
 
 #endif /* __CARP_H */

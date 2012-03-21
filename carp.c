@@ -81,11 +81,11 @@ static int carp_xmit(struct sk_buff *, struct net_device *);
 
 static struct net_device_stats *carp_get_stats(struct net_device *);
 
-static void carp_hmac_sign(struct carp_priv *, struct carp_header *);
-static int carp_hmac_verify(struct carp_priv *, struct carp_header *);
+static void carp_hmac_sign(struct carp *, struct carp_header *);
+static int carp_hmac_verify(struct carp *, struct carp_header *);
 static u32 inline addr2val(u8, u8, u8, u8);
 
-static void carp_set_state(struct carp_priv *, enum carp_state);
+static void carp_set_state(struct carp *, enum carp_state);
 static void carp_master_down(unsigned long);
 static void carp_advertise(unsigned long);
 
@@ -96,7 +96,7 @@ static struct net_device *carp_dev;
 
 static void carp_uninit(struct net_device *dev)
 {
-	struct carp_priv *cp = netdev_priv(dev);
+	struct carp *cp = netdev_priv(dev);
 
 	if (timer_pending(&cp->md_timer))
 		del_timer_sync(&cp->md_timer);
@@ -114,7 +114,7 @@ static void carp_err(struct sk_buff *skb, u32 info)
 	kfree_skb(skb);
 }
 
-static void carp_hmac_sign(struct carp_priv *cp, struct carp_header *ch)
+static void carp_hmac_sign(struct carp *cp, struct carp_header *ch)
 {
 	unsigned int keylen = sizeof(cp->carp_key);
 	struct scatterlist sg;
@@ -132,7 +132,7 @@ static void carp_hmac_sign(struct carp_priv *cp, struct carp_header *ch)
     }
 }
 
-static int carp_hmac_verify(struct carp_priv *cp, struct carp_header *ch)
+static int carp_hmac_verify(struct carp *cp, struct carp_header *ch)
 {
 	u8 tmp_md[CARP_SIG_LEN];
 	unsigned int keylen = sizeof(cp->carp_key);
@@ -174,7 +174,7 @@ static int carp_check_params(struct carp_ioctl_params p)
 	return 0;
 }
 
-static void carp_set_state(struct carp_priv *cp, enum carp_state state)
+static void carp_set_state(struct carp *cp, enum carp_state state)
 {
 	log("%s: Setting CARP state from %d to %d.\n", __func__, cp->state, state);
 	cp->state = state;
@@ -200,7 +200,7 @@ static void carp_set_state(struct carp_priv *cp, enum carp_state state)
 
 static void carp_master_down(unsigned long data)
 {
-	struct carp_priv *cp = (struct carp_priv *)data;
+	struct carp *cp = (struct carp *)data;
 
 	//log("%s: state=%d.\n", __func__, cp->state);
 
@@ -221,7 +221,7 @@ static void carp_master_down(unsigned long data)
 static int carp_rcv(struct sk_buff *skb)
 {
 	struct iphdr *iph;
-	struct carp_priv *cp = netdev_priv(carp_dev);
+	struct carp *cp = netdev_priv(carp_dev);
 	struct carp_header *ch;
 	int err = 0;
 	u64 tmp_counter;
@@ -325,7 +325,7 @@ err_out_skb_drop:
 static int carp_xmit(struct sk_buff *skb, struct net_device *dev)
 {
 #if 0
-	struct carp_priv *cp = netdev_priv(dev);
+	struct carp *cp = netdev_priv(dev);
 	struct net_device_stats *stats = &cp->stat;
 	struct iphdr  *iph = skb->nh.iph;
 	u8     tos;
@@ -358,7 +358,7 @@ static int carp_xmit(struct sk_buff *skb, struct net_device *dev)
 static int carp_ioctl (struct net_device *dev, struct ifreq *ifr, int cmd)
 {
 	int err = 0;
-	struct carp_priv *cp = netdev_priv(dev);
+	struct carp *cp = netdev_priv(dev);
 	struct net_device *tdev = NULL;
 	struct carp_ioctl_params p;
 
@@ -469,7 +469,7 @@ err_out:
 
 static struct net_device_stats *carp_get_stats(struct net_device *dev)
 {
-	struct carp_priv *cp = netdev_priv(dev);
+	struct carp *cp = netdev_priv(dev);
 	struct carp_stat *cs = &cp->cstat;
 
 	log("%s: crc=%8d, ver=%8d, mem=%8d, xmit=%8d | bytes_sent=%8d\n",
@@ -494,19 +494,19 @@ static const struct net_device_ops carp_netdev_ops = {
     .ndo_do_ioctl        = carp_ioctl,
     .ndo_change_mtu      = carp_change_mtu,
     .ndo_start_xmit      = carp_xmit,
+    .ndo_get_stats       = carp_get_stats,
+// NOTE: the below were never implemented in the old carp module
 //    .ndo_validate_addr   = eth_validate_addr,
 //    .ndo_set_rx_mode     = set_multicast_list,
 //    .ndo_set_mac_address = carp_set_address,
-    .ndo_get_stats       = carp_get_stats,
 //    .ndo_get_stats64     = carp_get_stats64,
 };
 
 static void carp_setup(struct net_device *dev)
 {
-	log("%s\n", __func__);
-
-//  FIXME: missing
-//    dev->owner = THIS_MODULE;
+    log("%s\n", __func__);
+    // FIXME: what happened to the owner field?
+    //dev->owner = THIS_MODULE;
 
     dev->netdev_ops      = &carp_netdev_ops;
 	dev->destructor      = free_netdev;
@@ -521,7 +521,7 @@ static void carp_setup(struct net_device *dev)
 
 static int carp_open(struct net_device *dev)
 {
-	struct carp_priv *cp = netdev_priv(dev);
+	struct carp *cp = netdev_priv(dev);
 	struct rtable *rt;
 	struct flowi4 fl4 = {
         .flowi4_oif   = cp->link,
@@ -547,7 +547,7 @@ static int carp_open(struct net_device *dev)
 
 static int carp_close(struct net_device *dev)
 {
-	struct carp_priv *cp = netdev_priv(dev);
+	struct carp *cp = netdev_priv(dev);
 	struct in_device *in_dev = inetdev_by_index(dev_net(dev), cp->mlink);
 
 	if (in_dev) {
@@ -557,15 +557,18 @@ static int carp_close(struct net_device *dev)
 	return 0;
 }
 
+/*
+ * Called from registration process
+ */
 static int carp_init(struct net_device *dev)
 {
 	struct net_device *tdev = NULL;
-	struct carp_priv *cp;
+	struct carp *cp;
 	struct iphdr *iph;
 	int hlen = LL_MAX_HEADER;
 	int mtu = 1500;
 
-	log("%s - %s\n", __func__, dev->name);
+	log("Begin %s for %s\n", __func__, dev->name);
 	cp = netdev_priv(dev);
 	iph = &cp->iph;
 
@@ -615,6 +618,8 @@ static int carp_init(struct net_device *dev)
 	dev->hard_header_len = hlen;
 	dev->mtu = mtu;
 
+    carp_create_proc_entry(cp);
+
 	return 0;
 }
 
@@ -634,7 +639,7 @@ static u32 inline addr2val(u8 a1, u8 a2, u8 a3, u8 a4)
 
 static void carp_advertise(unsigned long data)
 {
-	struct carp_priv *cp = (struct carp_priv *)data;
+	struct carp *cp = (struct carp *)data;
 	struct carp_header *ch = &cp->hdr;
 	struct carp_stat *cs = &cp->cstat;
 	struct sk_buff *skb;
@@ -720,12 +725,12 @@ out:
 static int __init device_carp_init(void)
 {
 	int err;
-	struct carp_priv *cp;
+	struct carp *cp;
     struct in_device *in_d;
 
 	printk(KERN_INFO "carp: %s", DRV_DESC);
 
-	carp_dev = alloc_netdev(sizeof(struct carp_priv), "carp0",  carp_setup);
+	carp_dev = alloc_netdev(sizeof(struct carp), "carp0",  carp_setup);
 	if (!carp_dev)
 	{
 		printk(KERN_ERR "Failed to allocate CARP network device structure.\n");
@@ -815,7 +820,7 @@ err_out_mem_free:
 
 void device_carp_fini(void)
 {
-	struct carp_priv *cp = netdev_priv(carp_dev);
+	struct carp *cp = netdev_priv(carp_dev);
 
 	carp_fini_queues();
 

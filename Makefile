@@ -1,8 +1,9 @@
 obj-m		:= ip_carp.o
-ip_carp-objs	:= carp.o carp_log.o carp_queue.o
+ip_carp-objs	:= carp.o carp_log.o carp_queue.o carp_procfs.o
 
 KDIR	:= /usr/src/linux-headers-$(shell uname -r)
 PWD	:= $(shell pwd)
+CONFIG_CARP_DEBUG=1
 
 default:
 	$(MAKE) -C $(KDIR) SUBDIRS=$(PWD) modules

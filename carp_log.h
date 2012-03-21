@@ -1,9 +1,9 @@
 /*
  * 	carp_log.h
- * 
+ *
  * 2004 Copyright (c) Evgeniy Polyakov <johnpol@xxxxxxxxxxx>
  * All rights reserved.
- * 
+ *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2 of the License, or
@@ -25,10 +25,14 @@
 
 #include "carp.h"
 
+#ifdef CONFIG_CARP_DEBUG
 #define log(f, a...) printk(KERN_INFO f, ##a)
+#else
+#define log(f, a...)
+#endif
 
-void dump_addr_info(struct carp_priv *);
-void dump_hmac_params(struct carp_priv *);
+void dump_addr_info(struct carp *);
+void dump_hmac_params(struct carp *);
 void dump_carp_header(struct carp_header *);
 
 #endif /* __CARP_LOG_H */

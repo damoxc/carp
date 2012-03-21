@@ -42,7 +42,7 @@
 #include "carp.h"
 #include "carp_log.h"
 
-void dump_addr_info(struct carp_priv *cp)
+void dump_addr_info(struct carp *cp)
 {
 	int i;
 
@@ -58,7 +58,7 @@ void dump_addr_info(struct carp_priv *cp)
 	printk("\n");
 }
 
-void dump_hmac_params(struct carp_priv *cp)
+void dump_hmac_params(struct carp *cp)
 {
 	int i;
 	unsigned int keylen;
