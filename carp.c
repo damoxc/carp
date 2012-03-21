@@ -130,8 +130,6 @@ static void carp_hmac_sign(struct carp_priv *cp, struct carp_header *ch)
     if (crypto_hash_setkey(desc.tfm, cp->carp_key, keylen) ||
         crypto_hash_digest(&desc, &sg, sg.length, ch->carp_md)) {
     }
-
-	//crypto_hmac(cp->tfm, cp->carp_key, &keylen, &sg, 1, ch->carp_md);
 }
 
 static int carp_hmac_verify(struct carp_priv *cp, struct carp_header *ch)
@@ -148,25 +146,10 @@ static int carp_hmac_verify(struct carp_priv *cp, struct carp_header *ch)
     desc.tfm = cp->tfm;
     desc.flags = 0;
 
-
     if (crypto_hash_setkey(desc.tfm, cp->carp_key, keylen) ||
         crypto_hash_digest(&desc, &sg, sg.length, ch->carp_md)) {
     }
 
-	//crypto_hmac(cp->tfm, cp->carp_key, &keylen, &sg, 1, tmp_md);
-#if 0
-	{
-		int i;
-		printk("calculated:  ");
-		for (i=0; i<CARP_SIG_LEN; ++i)
-			printk("%02x ", tmp_md[i]);
-		printk("\n");
-		printk("from header: ");
-		for (i=0; i<CARP_SIG_LEN; ++i)
-			printk("%02x ", ch->carp_md[i]);
-		printk("\n");
-	}
-#endif
 	return memcmp(tmp_md, ch->carp_md, CARP_SIG_LEN);
 }
 
