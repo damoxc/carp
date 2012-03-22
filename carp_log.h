@@ -28,9 +28,11 @@
 #define CONFIG_CARP_DEBUG 1
 
 #ifdef CONFIG_CARP_DEBUG
-#define log(f, a...) printk(KERN_INFO f, ##a)
+#define log(f, a...) pr_info(f, ##a)
+#define carp_dbg(f, a...) pr_info(f, ##a)
 #else
 #define log(f, a...)
+#define carp_dbg(f, a...)
 #endif
 
 void dump_addr_info(struct carp *);

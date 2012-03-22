@@ -112,21 +112,24 @@ static struct net_device *carp_dev;
 
 static void carp_dev_uninit(struct net_device *dev)
 {
-    struct carp *cp = netdev_priv(dev);
+    struct carp *carp = netdev_priv(dev);
 
-    if (timer_pending(&cp->md_timer))
-    	del_timer_sync(&cp->md_timer);
-    if (timer_pending(&cp->adv_timer))
-    	del_timer_sync(&cp->adv_timer);
+    if (timer_pending(&carp->md_timer))
+    	del_timer_sync(&carp->md_timer);
+    if (timer_pending(&carp->adv_timer))
+    	del_timer_sync(&carp->adv_timer);
 
-    log("%s\n", __func__);
-    dev_put(cp->odev);
+    carp_remove_proc_entry(carp);
+
+    crypto_free_hash(carp->tfm);
+
+    dev_put(carp->odev);
     dev_put(dev);
 }
 
 static void carp_err(struct sk_buff *skb, u32 info)
 {
-    log("%s\n", __func__);
+    carp_dbg("%s\n", __func__);
     kfree_skb(skb);
 }
 
@@ -135,6 +138,7 @@ static void carp_hmac_sign(struct carp *cp, struct carp_header *ch)
     unsigned int keylen = sizeof(cp->carp_key);
     struct scatterlist sg;
     struct hash_desc desc;
+    carp_dbg("%s\n", __func__);
 
     sg_assign_page(&sg, virt_to_page(ch->carp_counter));
     sg.offset = ((unsigned long)(ch->carp_counter)) % PAGE_SIZE;
@@ -154,6 +158,7 @@ static int carp_hmac_verify(struct carp *cp, struct carp_header *ch)
     unsigned int keylen = sizeof(cp->carp_key);
     struct scatterlist sg;
     struct hash_desc desc;
+    carp_dbg("%s\n", __func__);
 
     sg_assign_page(&sg, virt_to_page(ch->carp_counter));
     sg.offset = ((unsigned long)(ch->carp_counter)) % PAGE_SIZE;
@@ -171,6 +176,7 @@ static int carp_hmac_verify(struct carp *cp, struct carp_header *ch)
 
 static int carp_check_params(struct carp_ioctl_params p)
 {
+    carp_dbg("%s\n", __func__);
     if (p.state != INIT && p.state != BACKUP && p.state != MASTER)
     {
     	log("Wrong state %d.\n", p.state);
@@ -190,156 +196,160 @@ static int carp_check_params(struct carp_ioctl_params p)
     return 0;
 }
 
-static void carp_set_state(struct carp *cp, enum carp_state state)
+static void carp_set_state(struct carp *carp, enum carp_state state)
 {
-    log("%s: Setting CARP state from %d to %d.\n", __func__, cp->state, state);
-    cp->state = state;
+    carp_dbg("%s\n", __func__);
+    pr_info("%s: Setting CARP state from %d to %d.\n", __func__, carp->state, state);
+    carp->state = state;
 
     switch (state)
     {
     	case MASTER:
     		carp_call_queue(MASTER_QUEUE);
-    		if (!timer_pending(&cp->adv_timer))
-    			mod_timer(&cp->adv_timer, jiffies + cp->adv_timeout*HZ);
+    		if (!timer_pending(&carp->adv_timer))
+    			mod_timer(&carp->adv_timer, jiffies + carp->adv_timeout*HZ);
     		break;
     	case BACKUP:
     		carp_call_queue(BACKUP_QUEUE);
-    		if (!timer_pending(&cp->md_timer))
-    			mod_timer(&cp->md_timer, jiffies + cp->md_timeout*HZ);
+    		if (!timer_pending(&carp->md_timer))
+    			mod_timer(&carp->md_timer, jiffies + carp->md_timeout*HZ);
     		break;
     	case INIT:
-    		if (!timer_pending(&cp->md_timer))
-    			mod_timer(&cp->md_timer, jiffies + cp->md_timeout*HZ);
+    		if (!timer_pending(&carp->md_timer))
+    			mod_timer(&carp->md_timer, jiffies + carp->md_timeout*HZ);
     		break;
     }
 }
 
 static void carp_master_down(unsigned long data)
 {
-    struct carp *cp = (struct carp *)data;
+    struct carp *carp = (struct carp *)data;
+    carp_dbg("%s\n", __func__);
 
     //log("%s: state=%d.\n", __func__, cp->state);
 
-    if (cp->state != MASTER)
+    if (carp->state != MASTER)
     {
-    	if (test_bit(CARP_DATA_AVAIL, (long *)&cp->flags))
+    	if (test_bit(CARP_DATA_AVAIL, (long *)&carp->flags))
     	{
-    		if (!timer_pending(&cp->md_timer))
-    			mod_timer(&cp->md_timer, jiffies + cp->md_timeout*HZ);
+    		if (!timer_pending(&carp->md_timer))
+    			mod_timer(&carp->md_timer, jiffies + carp->md_timeout*HZ);
     	}
     	else
-    		carp_set_state(cp, MASTER);
+    		carp_set_state(carp, MASTER);
     }
 
-    clear_bit(CARP_DATA_AVAIL, (long *)&cp->flags);
+    clear_bit(CARP_DATA_AVAIL, (long *)&carp->flags);
 }
 
 static int carp_rcv(struct sk_buff *skb)
 {
     struct iphdr *iph;
-    struct carp *cp = netdev_priv(carp_dev);
-    struct carp_header *ch;
+    struct carp *carp = netdev_priv(carp_dev);
+    struct carp_header *carp_hdr;
     int err = 0;
     u64 tmp_counter;
-    struct timeval cptv, chtv;
+    struct timeval carp_tv, carp_hdr_tv;
+    carp_dbg("%s\n", __func__);
 
     //log("%s: state=%d\n", __func__, cp->state);
 
-    spin_lock(&cp->lock);
+    spin_lock(&carp->lock);
 
     iph = ip_hdr(skb);
-    ch = (struct carp_header *)skb->data;
+    carp_hdr = (struct carp_header *)skb->data;
 
     //dump_carp_header(ch);
 
-    if (ch->carp_version != cp->hdr.carp_version)
+    if (carp_hdr->carp_version != carp->hdr.carp_version)
     {
     	log("CARP version mismatch: remote=%d, local=%d.\n",
-    		ch->carp_version, cp->hdr.carp_version);
-    	cp->cstat.ver_errors++;
+    		carp_hdr->carp_version, carp->hdr.carp_version);
+    	carp->cstat.ver_errors++;
     	goto err_out_skb_drop;
     }
 
-    if (ch->carp_vhid != cp->hdr.carp_vhid)
+    if (carp_hdr->carp_vhid != carp->hdr.carp_vhid)
     {
     	log("CARP virtual host id mismatch: remote=%d, local=%d.\n",
-    		ch->carp_vhid, cp->hdr.carp_vhid);
-    	cp->cstat.vhid_errors++;
+    		carp_hdr->carp_vhid, carp->hdr.carp_vhid);
+    	carp->cstat.vhid_errors++;
     	goto err_out_skb_drop;
     }
 
-    if (carp_hmac_verify(cp, ch))
+    if (carp_hmac_verify(carp, carp_hdr))
     {
     	log("HMAC mismatch.\n");
-    	cp->cstat.hmac_errors++;
+    	carp->cstat.hmac_errors++;
     	goto err_out_skb_drop;
     }
 
-    tmp_counter = ntohl(ch->carp_counter[0]);
+    tmp_counter = ntohl(carp_hdr->carp_counter[0]);
     tmp_counter = tmp_counter<<32;
-    tmp_counter += ntohl(ch->carp_counter[1]);
+    tmp_counter += ntohl(carp_hdr->carp_counter[1]);
 
-    if (cp->state == BACKUP && ++cp->carp_adv_counter != tmp_counter)
+    if (carp->state == BACKUP && ++carp->carp_adv_counter != tmp_counter)
     {
-    	log("Counter mismatch: remote=%llu, local=%llu.\n", tmp_counter, cp->carp_adv_counter);
-    	cp->cstat.counter_errors++;
+    	log("Counter mismatch: remote=%llu, local=%llu.\n", tmp_counter, carp->carp_adv_counter);
+    	carp->cstat.counter_errors++;
     	goto err_out_skb_drop;
     }
 
-    cptv.tv_sec = cp->hdr.carp_advbase;
-    if (cp->hdr.carp_advbase <  240)
-    	cptv.tv_usec = 240 * 1000000 / 256;
+    carp_tv.tv_sec = carp->hdr.carp_advbase;
+    if (carp->hdr.carp_advbase <  240)
+    	carp_tv.tv_usec = 240 * 1000000 / 256;
     else
-    	cptv.tv_usec = cp->hdr.carp_advskew * 1000000 / 256;
+    	carp_tv.tv_usec = carp->hdr.carp_advskew * 1000000 / 256;
 
-    chtv.tv_sec = ch->carp_advbase;
-    chtv.tv_usec = ch->carp_advskew * 1000000 / 256;
+    carp_hdr_tv.tv_sec = carp_hdr->carp_advbase;
+    carp_hdr_tv.tv_usec = carp_hdr->carp_advskew * 1000000 / 256;
 
     /*log("local=%lu.%lu, remote=%lu.%lu, lcounter=%llu, remcounter=%llu, state=%d\n",
-    		cptv.tv_sec, cptv.tv_usec,
-    		chtv.tv_sec, chtv.tv_usec,
-    		cp->carp_adv_counter, tmp_counter,
-    		cp->state);
+    		carptv.tv_sec, carptv.tv_usec,
+    		carp_hdr_tv.tv_sec, carp_hdr_tv.tv_usec,
+    		carp->carp_adv_counter, tmp_counter,
+    		carp->state);
     */
-    set_bit(CARP_DATA_AVAIL, (long *)&cp->flags);
+    set_bit(CARP_DATA_AVAIL, (long *)&carp->flags);
 
-    switch (cp->state)
+    switch (carp->state)
     {
     	case INIT:
-    		if (timeval_before(&chtv, &cptv))
+    		if (timeval_before(&carp_hdr_tv, &carp_tv))
     		{
-    			cp->carp_adv_counter = tmp_counter;
-    			carp_set_state(cp, BACKUP);
+    			carp->carp_adv_counter = tmp_counter;
+    			carp_set_state(carp, BACKUP);
     		}
     		else
     		{
-    			carp_set_state(cp, MASTER);
+    			carp_set_state(carp, MASTER);
     		}
     		break;
     	case MASTER:
-    		if (timeval_before(&chtv, &cptv))
+    		if (timeval_before(&carp_hdr_tv, &carp_tv))
     		{
-    			cp->carp_adv_counter = tmp_counter;
-    			carp_set_state(cp, BACKUP);
+    			carp->carp_adv_counter = tmp_counter;
+    			carp_set_state(carp, BACKUP);
     		}
     		break;
     	case BACKUP:
-    		if (timeval_before(&cptv, &chtv))
+    		if (timeval_before(&carp_tv, &carp_hdr_tv))
     		{
-    			carp_set_state(cp, MASTER);
+    			carp_set_state(carp, MASTER);
     		}
     		break;
     }
 
 err_out_skb_drop:
     kfree_skb(skb);
-    spin_unlock(&cp->lock);
+    spin_unlock(&carp->lock);
 
     return err;
 }
 
 static int carp_dev_xmit(struct sk_buff *skb, struct net_device *dev)
 {
+    carp_dbg("%s\n", __func__);
 #if 0
     struct carp *cp = netdev_priv(dev);
     struct net_device_stats *stats = &cp->stat;
@@ -488,7 +498,7 @@ static struct net_device_stats *carp_dev_get_stats(struct net_device *dev)
     struct carp *cp = netdev_priv(dev);
     struct carp_stat *cs = &cp->cstat;
 
-    log("%s: crc=%8d, ver=%8d, mem=%8d, xmit=%8d | bytes_sent=%8d\n",
+    carp_dbg("%s: crc=%8d, ver=%8d, mem=%8d, xmit=%8d | bytes_sent=%8d\n",
     		__func__,
     		cs->crc_errors, cs->ver_errors, cs->mem_errors, cs->xmit_errors,
     		cs->bytes_sent);
@@ -582,7 +592,7 @@ static void carp_dev_setup(struct net_device *carp_dev)
     if (!carp->tfm) {
         pr_err("Failed to allocate SHA1 tfm.\n");
         res = -EINVAL;
-        goto err;
+        goto out;
     }
 
     dump_hmac_params(carp);
@@ -592,13 +602,12 @@ static void carp_dev_setup(struct net_device *carp_dev)
         goto err_out_crypto_free;
 
     add_timer(&carp->md_timer);
-
-    return res;
+    return;
 
 err_out_crypto_free:
     crypto_free_hash(carp->tfm);
-err:
-    return res;
+out:
+    return;
 }
 
 static int carp_dev_open(struct net_device *dev)
@@ -1032,11 +1041,14 @@ static int __init carp_init(void)
 out:
     return res;
 err:
+    carp_dbg("carp: error creating netdev");
     rtnl_link_unregister(&carp_link_ops);
 err_link:
-    unregister_pernet_subsys(&carp_net_ops);
-err_proto:
+    carp_dbg("carp: error registering link");
     inet_del_protocol(&carp_protocol, IPPROTO_CARP);
+err_proto:
+    carp_dbg("carp: error registering protocol");
+    unregister_pernet_subsys(&carp_net_ops);
     goto out;
 }
 
@@ -1049,13 +1061,14 @@ static void __exit carp_exit(void)
     rtnl_link_unregister(&carp_link_ops);
     unregister_pernet_subsys(&carp_net_ops);
 
-#if 0
-    struct carp *cp = netdev_priv(carp_dev);
-
     carp_fini_queues();
 
     if (inet_del_protocol(&carp_protocol, IPPROTO_CARP) < 0)
         pr_info("Failed to remove CARP protocol handler.\n");
+
+#if 0
+
+
 
     crypto_free_hash(cp->tfm);
 
