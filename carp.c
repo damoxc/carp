@@ -537,7 +537,7 @@ static void carp_dev_setup(struct net_device *carp_dev)
     struct in_device *in_d;
     struct carp *carp = netdev_priv(carp_dev);
 
-    log("%s\n", __func__);
+    carp_dbg("%s\n", __func__);
 
     /* Initialise the device entry points */
     carp_dev->netdev_ops = &carp_netdev_ops;
@@ -624,6 +624,7 @@ static int carp_dev_open(struct net_device *dev)
         .flowi4_tos   = RT_TOS(cp->iph.tos),
         .flowi4_proto = IPPROTO_CARP,
     };
+    carp_dbg("%s", __func__);
 
     rt = ip_route_output_key(dev_net(dev), &fl4);
     if (rt == NULL)
@@ -643,6 +644,7 @@ static int carp_dev_close(struct net_device *dev)
 {
     struct carp *cp = netdev_priv(dev);
     struct in_device *in_dev = inetdev_by_index(dev_net(dev), cp->mlink);
+    carp_dbg("%s", __func__);
 
     if (in_dev) {
     	ip_mc_dec_group(in_dev, cp->iph.daddr);
@@ -661,6 +663,7 @@ static int carp_dev_init(struct net_device *dev)
     struct iphdr *iph;
     int hlen = LL_MAX_HEADER;
     int mtu = 1500;
+    carp_dbg("%s", __func__);
 
     log("Begin %s for %s\n", __func__, dev->name);
     cp = netdev_priv(dev);
@@ -750,6 +753,7 @@ static void carp_advertise(unsigned long data)
     struct ethhdr *eth;
     struct iphdr *ip;
     struct carp_header *c;
+    carp_dbg("%s", __func__);
 
     if (cp->state == BACKUP || !cp->odev)
     	return;
@@ -827,6 +831,7 @@ out:
 
 static int carp_validate(struct nlattr *tb[], struct nlattr *data[])
 {
+    carp_dbg("%s", __func__);
     if (tb[IFLA_ADDRESS]) {
         if (nla_len(tb[IFLA_ADDRESS]) != ETH_ALEN)
             return -EINVAL;
@@ -840,6 +845,7 @@ static int carp_get_tx_queues(struct net *net, struct nlattr *tb[],
                               unsigned int *num_queues,
                               unsigned int *real_num_queues)
 {
+    carp_dbg("%s", __func__);
     return 0;
 }
 
@@ -855,6 +861,7 @@ int carp_create(struct net *net, const char *name)
 {
     struct net_device *carp_dev;
     int res;
+    carp_dbg("%s", __func__);
 
     rtnl_lock();
 
@@ -883,6 +890,7 @@ int carp_create(struct net *net, const char *name)
 static int __net_init carp_net_init(struct net *net)
 {
     struct carp_net *cn = net_generic(net, carp_net_id);
+    carp_dbg("%s", __func__);
 
     cn->net = net;
     INIT_LIST_HEAD(&cn->dev_list);
@@ -896,6 +904,7 @@ static int __net_init carp_net_init(struct net *net)
 static void __net_exit carp_net_exit(struct net *net)
 {
     struct carp_net *cn = net_generic(net, carp_net_id);
+    carp_dbg("%s", __func__);
 
     carp_destroy_sysfs(cn);
     carp_destroy_proc_dir(cn);
@@ -908,116 +917,11 @@ static struct pernet_operations carp_net_ops = {
     .size = sizeof(struct carp_net),
 };
 
-#if 0
-static int __init carp_init(void)
-{
-    int err;
-    int res;
-    struct carp *cp;
-    struct in_device *in_d;
-
-    pr_info("%s", DRV_DESC);
-
-    res = register_pernet_subsys(&carp_net_ops);
-    if (res)
-        goto out;
-
-    carp_create_debugfs();
-
-    carp_dev = alloc_netdev(sizeof(struct carp), "carp0",  carp_dev_setup);
-    if (!carp_dev)
-    {
-        pr_err("Failed to allocate CARP network device structure.\n");
-    	return -ENOMEM;
-    }
-
-    if (inet_add_protocol(&carp_protocol, IPPROTO_CARP) < 0)
-    {
-        pr_info("Failed to add CARP protocol.\n");
-    	err = -EAGAIN;
-    	goto err_out_mem_free;
-    }
-
-    carp_dev->netdev_ops = &carp_netdev_ops;
-
-    cp = netdev_priv(carp_dev);
-    cp->iph.saddr   = addr2val(10, 0, 0, 3);
-    cp->iph.daddr   = MULTICAST_ADDR;
-    cp->iph.tos     = 0;
-    cp->md_timeout  = 3;
-    cp->adv_timeout = 1;
-    cp->state       = INIT;
-
-    spin_lock_init(&cp->lock);
-
-    cp->odev = dev_get_by_name(dev_net(carp_dev), "eth0");
-    if (cp->odev)
-    {
-    	cp->link = cp->odev->ifindex;
-        in_d     = in_dev_get(cp->odev);
-
-        if (in_d != NULL && in_d->ifa_list != NULL) {
-            cp->iph.saddr = in_d->ifa_list[0].ifa_address;
-        }
-    }
-
-    memset(cp->carp_key, 1, sizeof(cp->carp_key));
-    get_random_bytes(&cp->carp_adv_counter, 8);
-
-    get_random_bytes(&cp->hdr.carp_advskew, 1);
-    get_random_bytes(&cp->hdr.carp_advbase, 1);
-
-    dump_addr_info(cp);
-
-    init_timer(&cp->md_timer);
-    cp->md_timer.expires   = jiffies + cp->md_timeout*HZ;
-    cp->md_timer.data      = (unsigned long)cp;
-    cp->md_timer.function  = carp_master_down;
-
-    init_timer(&cp->adv_timer);
-    cp->adv_timer.expires  = jiffies + cp->adv_timeout*HZ;
-    cp->adv_timer.data     = (unsigned long)cp;
-    cp->adv_timer.function = carp_advertise;
-
-    cp->tfm = crypto_alloc_hash("sha1", 0, CRYPTO_ALG_ASYNC);
-    if (!cp->tfm)
-    {
-        pr_err("Failed to allocate SHA1 tfm.\n");
-    	err = -EINVAL;
-    	goto err_out_del_protocol;
-    }
-
-    dump_hmac_params(cp);
-
-    err = carp_init_queues();
-    if (err)
-    	goto err_out_crypto_free;
-
-    if ((err = register_netdev(carp_dev)))
-    	goto err_out_fini_carp_queues;
-
-    add_timer(&cp->md_timer);
-
-    return err;
-out:
-    return res;
-err_out_fini_carp_queues:
-    carp_fini_queues();
-err_out_crypto_free:
-    crypto_free_hash(cp->tfm);
-err_out_del_protocol:
-    inet_del_protocol(&carp_protocol, IPPROTO_CARP);
-err_out_mem_free:
-    free_netdev(carp_dev);
-
-    return err;
-}
-#endif
-
 static int __init carp_init(void)
 {
     int i;
     int res;
+    carp_dbg("%s", __func__);
 
     pr_info("carp: %s", DRV_DESC);
 
@@ -1058,6 +962,7 @@ err_proto:
 
 static void __exit carp_exit(void)
 {
+    carp_dbg("%s", __func__);
     pr_info("carp: unloading");
     carp_destroy_debugfs();
 
