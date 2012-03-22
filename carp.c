@@ -67,9 +67,6 @@
 #include "carp_queue.h"
 #include "carp_ioctl.h"
 
-#define timeval_before(before, after)    		\
-    (((before)->tv_sec == (after)->tv_sec) ? ((before)->tv_usec < (after)->tv_usec) : ((before)->tv_sec < (after)->tv_sec))
-
 static int max_carps = 1;
 static int tx_queues = CARP_DEFAULT_TX_QUEUES;
 
@@ -91,17 +88,12 @@ static int carp_dev_open(struct net_device *);
 static int carp_dev_ioctl (struct net_device *, struct ifreq *, int);
 static int carp_check_params(struct carp *, struct carp_ioctl_params);
 
-static void carp_err(struct sk_buff *, u32);
-static int carp_rcv(struct sk_buff *);
 static int carp_dev_xmit(struct sk_buff *, struct net_device *);
 
 static struct net_device_stats *carp_dev_get_stats(struct net_device *);
 
-static void carp_hmac_sign(struct carp *, struct carp_header *);
-static int carp_hmac_verify(struct carp *, struct carp_header *);
 static u32 inline addr2val(u8, u8, u8, u8);
 
-static void carp_set_state(struct carp *, enum carp_state);
 static void carp_master_down(unsigned long);
 static void carp_advertise(unsigned long);
 
@@ -110,6 +102,34 @@ static void __exit carp_exit(void);
 
 static struct net_device *carp_dev;
 
+/*----------------------------- Global functions ----------------------------*/
+int carp_crypto_hmac(struct carp *carp, struct scatterlist *sg, u8 *carp_md)
+{
+    int res;
+    struct hash_desc desc;
+
+    res = crypto_hash_setkey(carp->hash, carp->carp_key, sizeof(carp->carp_key));
+    if (res)
+        return res;
+
+    desc.tfm   = carp->hash;
+    desc.flags = 0;
+
+    res = crypto_hash_digest(&desc, sg, sg->length, carp_md);
+    if (res);
+        return res;
+
+    return 0;
+}
+
+static void carp_hmac_sign(struct carp *carp, struct carp_header *carp_hdr)
+{
+    struct scatterlist sg;
+    sg_set_buf(&sg, carp_hdr->carp_counter, sizeof(carp_hdr->carp_counter));
+    carp_crypto_hmac(carp, &sg, carp_hdr->carp_md);
+}
+
+/*----------------------------- Device functions ----------------------------*/
 static void carp_dev_uninit(struct net_device *dev)
 {
     struct carp *carp = netdev_priv(dev);
@@ -121,57 +141,10 @@ static void carp_dev_uninit(struct net_device *dev)
 
     carp_remove_proc_entry(carp);
 
-    crypto_free_hash(carp->tfm);
+    crypto_free_hash(carp->hash);
 
     dev_put(carp->odev);
     dev_put(dev);
-}
-
-static void carp_err(struct sk_buff *skb, u32 info)
-{
-    carp_dbg("%s\n", __func__);
-    kfree_skb(skb);
-}
-
-static void carp_hmac_sign(struct carp *cp, struct carp_header *ch)
-{
-    unsigned int keylen = sizeof(cp->carp_key);
-    struct scatterlist sg;
-    struct hash_desc desc;
-    carp_dbg("%s\n", __func__);
-
-    sg_assign_page(&sg, virt_to_page(ch->carp_counter));
-    sg.offset = ((unsigned long)(ch->carp_counter)) % PAGE_SIZE;
-    sg.length = sizeof(ch->carp_counter);
-
-    desc.tfm = cp->tfm;
-    desc.flags = 0;
-
-    if (crypto_hash_setkey(desc.tfm, cp->carp_key, keylen) ||
-        crypto_hash_digest(&desc, &sg, sg.length, ch->carp_md)) {
-    }
-}
-
-static int carp_hmac_verify(struct carp *carp, struct carp_header *carp_hdr)
-{
-    u8 tmp_md[CARP_SIG_LEN];
-    unsigned int keylen = sizeof(carp->carp_key);
-    struct scatterlist sg;
-    struct hash_desc desc;
-    carp_dbg("%s\n", __func__);
-
-    sg_assign_page(&sg, virt_to_page(carp_hdr->carp_counter));
-    sg.offset = ((unsigned long)(carp_hdr->carp_counter)) % PAGE_SIZE;
-    sg.length = sizeof(carp_hdr->carp_counter);
-
-    desc.tfm = carp->tfm;
-    desc.flags = 0;
-
-    if (crypto_hash_setkey(desc.tfm, carp->carp_key, keylen) ||
-        crypto_hash_digest(&desc, &sg, sg.length, carp_hdr->carp_md)) {
-    }
-
-    return memcmp(tmp_md, carp_hdr->carp_md, CARP_SIG_LEN);
 }
 
 static int carp_check_params(struct carp *carp, struct carp_ioctl_params p)
@@ -196,7 +169,7 @@ static int carp_check_params(struct carp *carp, struct carp_ioctl_params p)
     return 0;
 }
 
-static void carp_set_state(struct carp *carp, enum carp_state state)
+void carp_set_state(struct carp *carp, enum carp_state state)
 {
     carp_dbg("%s\n", __func__);
     pr_info("%s: Setting CARP state from %d to %d.\n", __func__, carp->state, state);
@@ -240,111 +213,6 @@ static void carp_master_down(unsigned long data)
     }
 
     clear_bit(CARP_DATA_AVAIL, (long *)&carp->flags);
-}
-
-static int carp_rcv(struct sk_buff *skb)
-{
-    struct iphdr *iph;
-    struct carp *carp = netdev_priv(carp_dev);
-    struct carp_header *carp_hdr;
-    int err = 0;
-    u64 tmp_counter;
-    struct timeval carp_tv, carp_hdr_tv;
-    carp_dbg("%s\n", __func__);
-
-    //log("%s: state=%d\n", __func__, cp->state);
-
-    spin_lock(&carp->lock);
-
-    iph = ip_hdr(skb);
-    carp_hdr = (struct carp_header *)skb->data;
-
-    //dump_carp_header(ch);
-
-    if (carp_hdr->carp_version != carp->hdr.carp_version)
-    {
-    	log("CARP version mismatch: remote=%d, local=%d.\n",
-    		carp_hdr->carp_version, carp->hdr.carp_version);
-    	carp->cstat.ver_errors++;
-    	goto err_out_skb_drop;
-    }
-
-    if (carp_hdr->carp_vhid != carp->hdr.carp_vhid)
-    {
-    	log("CARP virtual host id mismatch: remote=%d, local=%d.\n",
-    		carp_hdr->carp_vhid, carp->hdr.carp_vhid);
-    	carp->cstat.vhid_errors++;
-    	goto err_out_skb_drop;
-    }
-
-    if (carp_hmac_verify(carp, carp_hdr))
-    {
-    	log("HMAC mismatch.\n");
-    	carp->cstat.hmac_errors++;
-    	goto err_out_skb_drop;
-    }
-
-    tmp_counter = ntohl(carp_hdr->carp_counter[0]);
-    tmp_counter = tmp_counter<<32;
-    tmp_counter += ntohl(carp_hdr->carp_counter[1]);
-
-    if (carp->state == BACKUP && ++carp->carp_adv_counter != tmp_counter)
-    {
-    	log("Counter mismatch: remote=%llu, local=%llu.\n", tmp_counter, carp->carp_adv_counter);
-    	carp->cstat.counter_errors++;
-    	goto err_out_skb_drop;
-    }
-
-    carp_tv.tv_sec = carp->hdr.carp_advbase;
-    if (carp->hdr.carp_advbase <  240)
-    	carp_tv.tv_usec = 240 * 1000000 / 256;
-    else
-    	carp_tv.tv_usec = carp->hdr.carp_advskew * 1000000 / 256;
-
-    carp_hdr_tv.tv_sec = carp_hdr->carp_advbase;
-    carp_hdr_tv.tv_usec = carp_hdr->carp_advskew * 1000000 / 256;
-
-    /*log("local=%lu.%lu, remote=%lu.%lu, lcounter=%llu, remcounter=%llu, state=%d\n",
-    		carptv.tv_sec, carptv.tv_usec,
-    		carp_hdr_tv.tv_sec, carp_hdr_tv.tv_usec,
-    		carp->carp_adv_counter, tmp_counter,
-    		carp->state);
-    */
-    set_bit(CARP_DATA_AVAIL, (long *)&carp->flags);
-
-    switch (carp->state)
-    {
-    	case INIT:
-    		if (timeval_before(&carp_hdr_tv, &carp_tv))
-    		{
-    			carp->carp_adv_counter = tmp_counter;
-    			carp_set_state(carp, BACKUP);
-    		}
-    		else
-    		{
-    			carp_set_state(carp, MASTER);
-    		}
-    		break;
-    	case MASTER:
-    		if (timeval_before(&carp_hdr_tv, &carp_tv))
-    		{
-    			carp->carp_adv_counter = tmp_counter;
-    			carp_set_state(carp, BACKUP);
-    		}
-    		break;
-    	case BACKUP:
-    		if (timeval_before(&carp_tv, &carp_hdr_tv))
-    		{
-    			carp_set_state(carp, MASTER);
-    		}
-    		break;
-    }
-
-err_out_skb_drop:
-    kfree_skb(skb);
-    spin_unlock(&carp->lock);
-
-    return err;
 }
 
 static int carp_dev_xmit(struct sk_buff *skb, struct net_device *dev)
@@ -515,6 +383,19 @@ static int carp_dev_change_mtu(struct net_device *dev, int new_mtu)
     return 0;
 }
 
+static int carp_set_mac_address(struct net_device *dev, void *addr)
+{
+    struct carp *carp = netdev_priv(dev);
+    struct sockaddr *address = addr;
+
+    if (!is_valid_ether_addr(address->sa_data))
+        return -EADDRNOTAVAIL;
+
+    memcpy(dev->dev_addr, address->sa_data, dev->addr_len);
+    memcpy(carp->hwaddr, address->sa_data, dev->addr_len);
+    return 0;
+}
+
 static const struct net_device_ops carp_netdev_ops = {
     .ndo_init            = carp_dev_init,
     .ndo_uninit          = carp_dev_uninit,
@@ -527,7 +408,7 @@ static const struct net_device_ops carp_netdev_ops = {
 // NOTE: the below were never implemented in the old carp module
 //    .ndo_validate_addr   = eth_validate_addr,
 //    .ndo_set_rx_mode     = set_multicast_list,
-//    .ndo_set_mac_address = carp_set_address,
+    .ndo_set_mac_address = carp_set_mac_address,
 //    .ndo_get_stats64     = carp_get_stats64,
 };
 
@@ -591,8 +472,8 @@ static void carp_dev_setup(struct net_device *carp_dev)
     carp->adv_timer.data     = (unsigned long)carp;
     carp->adv_timer.function = carp_advertise;
 
-    carp->tfm = crypto_alloc_hash("sha1", 0, CRYPTO_ALG_ASYNC);
-    if (!carp->tfm) {
+    carp->hash = crypto_alloc_hash("sha1", 0, CRYPTO_ALG_ASYNC);
+    if (!carp->hash) {
         pr_err("Failed to allocate SHA1 tfm.\n");
         res = -EINVAL;
         goto out;
@@ -608,7 +489,7 @@ static void carp_dev_setup(struct net_device *carp_dev)
     return;
 
 err_out_crypto_free:
-    crypto_free_hash(carp->tfm);
+    crypto_free_hash(carp->hash);
 out:
     return;
 }
@@ -729,13 +610,6 @@ static int carp_dev_init(struct net_device *dev)
     return 0;
 }
 
-static struct net_protocol carp_protocol = {
-    .handler     = carp_rcv,
-    .err_handler = carp_err,
-//    .no_policy   = 1,
-//    .netns_ok    = 1,
-};
-
 static u32 inline addr2val(u8 a1, u8 a2, u8 a3, u8 a4)
 {
     u32 ret;
@@ -803,7 +677,7 @@ static void carp_advertise(unsigned long data)
     carp_hmac_sign(cp, ch);
 
     skb->protocol   = __constant_htons(ETH_P_IP);
-    skb->mac_header = (sk_buff_data_t)((u8 *)ip) - 14;
+    skb->mac_header = (void *)eth;
     skb->dev        = cp->odev;
     skb->pkt_type   = PACKET_MULTICAST;
 
@@ -929,7 +803,7 @@ static int __init carp_init(void)
     if (res)
         goto out;
 
-    res = inet_add_protocol(&carp_protocol, IPPROTO_CARP);
+    res = carp_register_protocol();
     if (res)
         goto err_proto;
 
@@ -952,7 +826,7 @@ err:
     rtnl_link_unregister(&carp_link_ops);
 err_link:
     carp_dbg("carp: error registering link");
-    inet_del_protocol(&carp_protocol, IPPROTO_CARP);
+    carp_unregister_protocol();
 err_proto:
     carp_dbg("carp: error registering protocol");
     unregister_pernet_subsys(&carp_net_ops);
@@ -971,17 +845,8 @@ static void __exit carp_exit(void)
 
     carp_fini_queues();
 
-    if (inet_del_protocol(&carp_protocol, IPPROTO_CARP) < 0)
+    if (carp_unregister_protocol() < 0)
         pr_info("Failed to remove CARP protocol handler.\n");
-
-#if 0
-
-
-
-    crypto_free_hash(cp->tfm);
-
-    unregister_netdev(carp_dev);
-#endif
 }
 
 module_init(carp_init);

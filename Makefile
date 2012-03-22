@@ -1,5 +1,5 @@
 obj-m		:= ip_carp.o
-ip_carp-objs	:= carp.o carp_log.o carp_queue.o carp_debugfs.o carp_procfs.o carp_sysfs.o
+ip_carp-objs	:= carp.o carp_log.o carp_queue.o carp_debugfs.o carp_procfs.o carp_sysfs.o carp_proto.o
 
 CC := colorgcc
 

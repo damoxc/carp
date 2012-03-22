@@ -38,3 +38,12 @@ int carp_create_sysfs(struct carp_net *cn)
 void carp_destroy_sysfs(struct carp_net *cn)
 {
 }
+
+/*
+ * Initialise sysfs for each carp. This sets up and registers
+ * the 'carpctl' directory for each individual carp under /sys/class/net.
+ */
+void carp_prepare_sysfs_group(struct carp *carp)
+{
+    //carp->dev->sysfs_groups[0] = &carp_group;
+}

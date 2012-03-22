@@ -47,6 +47,10 @@
 #define MULTICAST(x)    (((x) & htonl(0xf0000000)) == htonl(0xe0000000))
 #define MULTICAST_ADDR  addr2val(224, 0, 0, 69)
 
+#define timeval_before(before, after)    		\
+    (((before)->tv_sec == (after)->tv_sec) ? ((before)->tv_usec < (after)->tv_usec) : ((before)->tv_sec < (after)->tv_sec))
+
+
 extern int carp_net_id;
 
 /*
@@ -110,7 +114,9 @@ struct carp {
 
 	u8                      carp_key[CARP_KEY_LEN];
 	u8                      carp_pad[CARP_HMAC_PAD_LEN];
-	struct crypto_hash     *tfm;
+	struct crypto_hash     *hash;
+
+    u8                      hwaddr[ETH_ALEN];
 
 	u64                     carp_adv_counter;
 
@@ -137,6 +143,13 @@ static inline char *carp_state_fmt(struct carp *carp)
     }
     return NULL;
 }
+
+int carp_crypto_hmac(struct carp *, struct scatterlist *, u8 *);
+void carp_set_state(struct carp *, enum carp_state);
+
+// Implemented in carp_proto.c
+int carp_register_protocol(void);
+int carp_unregister_protocol(void);
 
 // Implemented in carp_debugfs.c
 void carp_create_debugfs(void);

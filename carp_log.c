@@ -58,33 +58,23 @@ void dump_addr_info(struct carp *cp)
 	printk("\n");
 }
 
-void dump_hmac_params(struct carp *cp)
+void dump_hmac_params(struct carp *carp)
 {
 	int i;
-	unsigned int keylen;
-	struct scatterlist sg;
-    struct hash_desc desc;
 	u8 carp_md[CARP_SIG_LEN];
+	struct scatterlist sg;
 
-	keylen = sizeof(cp->carp_key);
+    sg_set_buf(&sg, &carp->carp_adv_counter, sizeof(carp->carp_adv_counter));
 
-	sg_assign_page(&sg,virt_to_page(&cp->carp_adv_counter));
-	sg.offset = (unsigned long)(&cp->carp_adv_counter) % PAGE_SIZE;
-	sg.length = sizeof(cp->carp_adv_counter);
-
-    desc.tfm = cp->tfm;
-    desc.flags = 0;
-
-    if (crypto_hash_setkey(desc.tfm, cp->carp_key, keylen) ||
-        crypto_hash_digest(&desc, &sg, sg.length, carp_md)) {
-    }
+    if (carp_crypto_hmac(carp, &sg, carp_md))
+        return;
 
 	printk(KERN_INFO "key: ");
 	for (i=0; i<CARP_KEY_LEN; ++i)
-		printk("%02x ", cp->carp_key[i]);
+		printk("%02x ", carp->carp_key[i]);
 	printk("\n");
 
-	printk("counter: %llx ", cp->carp_adv_counter);
+	printk("counter: %llx ", carp->carp_adv_counter);
 
 	printk("hmac: ");
 	for (i=0; i<CARP_SIG_LEN; ++i)
