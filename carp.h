@@ -42,6 +42,7 @@
 #define CARP_TTL               255
 #define	CARP_SIG_LEN            20
 #define CARP_DEFAULT_TX_QUEUES  16
+#define CARP_STATE_LEN           8
 
 #define MULTICAST(x)    (((x) & htonl(0xf0000000)) == htonl(0xe0000000))
 #define MULTICAST_ADDR  addr2val(224, 0, 0, 69)
@@ -123,6 +124,19 @@ struct carp {
 
     struct   dentry *debug_dir;
 };
+
+static inline char *carp_state_fmt(struct carp *carp)
+{
+    switch (carp->state) {
+        case MASTER:
+            return "MASTER";
+        case INIT:
+            return "INIT";
+        case BACKUP:
+            return "BACKUP";
+    }
+    return NULL;
+}
 
 // Implemented in carp_debugfs.c
 void carp_create_debugfs(void);

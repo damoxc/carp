@@ -26,9 +26,108 @@
 #include "carp.h"
 #include "carp_log.h"
 
+static void *carp_info_seq_start(struct seq_file *seq, loff_t *pos)
+    __acquires(RCU)
+    __acquires(&carp->lock)
+{
+    struct carp *carp = seq->private;
+    carp_dbg("%s: pos=%lld", __func__, *pos);
+
+    rcu_read_lock();
+    spin_lock(&carp->lock);
+
+    if (*pos == 0)
+        return carp;
+    return NULL;
+}
+
+static void *carp_info_seq_next(struct seq_file *seq, void *v, loff_t *pos)
+{
+    carp_dbg("%s", __func__);
+    ++*pos;
+    return NULL;
+}
+
+static void carp_info_seq_stop(struct seq_file *seq, void *v)
+    __releases(&carp->lock)
+    __releases(RCU)
+{
+    struct carp *carp = seq->private;
+    carp_dbg("%s", __func__);
+    spin_unlock(&carp->lock);
+    rcu_read_unlock();
+}
+
+static int carp_info_seq_show(struct seq_file *seq, void *v)
+{
+    struct carp *carp = seq->private;
+    carp_dbg("%s", __func__);
+
+    seq_printf(seq, "%s\n", DRV_DESC);
+    seq_printf(seq, "State: %s\n", carp_state_fmt(carp));
+
+    return 0;
+}
+
+static const struct seq_operations carp_info_seq_ops = {
+    .start = carp_info_seq_start,
+    .next  = carp_info_seq_next,
+    .stop  = carp_info_seq_stop,
+    .show  = carp_info_seq_show,
+};
+
+static int carp_info_open(struct inode *inode, struct file *file)
+{
+    struct seq_file *seq;
+    struct proc_dir_entry *proc;
+    int res;
+
+    res = seq_open(file, &carp_info_seq_ops);
+    if (!res) {
+        /* recover the pointer buried in proc_dir_entry data */
+        seq = file->private_data;
+        proc = PDE(inode);
+        seq->private = proc->data;
+    }
+
+    return res;
+}
+
+static const struct file_operations carp_info_fops = {
+    .owner   = THIS_MODULE,
+    .open    = carp_info_open,
+    .read    = seq_read,
+    .llseek  = seq_lseek,
+    .release = seq_release,
+};
+
 void carp_create_proc_entry(struct carp *carp)
 {
     struct net_device *carp_dev = carp->dev;
+    struct carp_net *cn = net_generic(dev_net(carp_dev), carp_net_id);
+
+    if (cn->proc_dir) {
+        carp->proc_entry = proc_create_data(carp_dev->name,
+                                            S_IRUGO, cn->proc_dir,
+                                            &carp_info_fops, carp);
+        if (carp->proc_entry== NULL)
+            pr_warning("Warning: Cannot create /proc/net/%s/%s\n",
+                       DRV_NAME, carp_dev->name);
+        else
+            memcpy(carp->proc_file_name, carp_dev->name, IFNAMSIZ);
+    }
+}
+
+void carp_remove_proc_entry(struct carp *carp)
+{
+    struct net_device *carp_dev = carp->dev;
+    struct carp_net *cn = net_generic(dev_net(carp_dev), carp_net_id);
+
+    if (cn->proc_dir && carp->proc_entry) {
+        remove_proc_entry(carp->proc_file_name, cn->proc_dir);
+        memset(carp->proc_file_name, 0, IFNAMSIZ);
+        carp->proc_entry = NULL;
+    }
 }
 
 void __net_init carp_create_proc_dir(struct carp_net *cn)
