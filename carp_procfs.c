@@ -61,10 +61,18 @@ static void carp_info_seq_stop(struct seq_file *seq, void *v)
 static int carp_info_seq_show(struct seq_file *seq, void *v)
 {
     struct carp *carp = seq->private;
+    struct carp_stat *carp_stat = &carp->cstat;
+    struct carp_header *carp_hdr = &carp->hdr;
+
     carp_dbg("%s", __func__);
 
     seq_printf(seq, "%s\n", DRV_DESC);
     seq_printf(seq, "State: %s\n", carp_state_fmt(carp));
+    seq_printf(seq, "Device: %s\n", carp->odev->name);
+    seq_printf(seq, "Bytes Sent: %d\n", carp_stat->bytes_sent);
+    seq_printf(seq, "VHID: %d\n", carp_hdr->carp_vhid);
+    seq_printf(seq, "Adv Base: %d\n", carp_hdr->carp_advbase);
+    seq_printf(seq, "Adv Skew: %d\n", carp_hdr->carp_advskew);
 
     return 0;
 }
