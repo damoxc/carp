@@ -129,6 +129,34 @@ static void carp_hmac_sign(struct carp *carp, struct carp_header *carp_hdr)
     carp_crypto_hmac(carp, &sg, carp_hdr->carp_md);
 }
 
+static unsigned short cksum(const void * const buf_, const size_t len)
+{
+    const unsigned char *buf = (unsigned char *) buf_;
+    unsigned long sum = 0UL;
+    size_t evenlen = len & ~ (size_t) 1U;
+    size_t i = (size_t) 0U;
+
+    if (len <= (size_t) 0U) {
+        return 0U;
+    }
+    do {
+        sum += (buf[i] << 8) | buf[i + 1];
+        if (sum > 0xffff) {
+            sum &= 0xffff;
+            sum++;
+        }
+        i += 2;
+    } while (i < evenlen);
+    if (i != evenlen) {
+        sum += buf[i] << 8;
+        if (sum > 0xffff) {
+            sum &= 0xffff;
+            sum++;
+        }
+    }
+    return (unsigned short) ~sum;
+}
+
 /*----------------------------- Device functions ----------------------------*/
 static void carp_dev_uninit(struct net_device *dev)
 {
@@ -474,7 +502,7 @@ static void carp_dev_setup(struct net_device *carp_dev)
 
     carp->hash = crypto_alloc_hash("sha1", 0, CRYPTO_ALG_ASYNC);
     if (!carp->hash) {
-        pr_err("Failed to allocate SHA1 tfm.\n");
+        pr_err("Failed to allocate SHA1 hash.\n");
         res = -EINVAL;
         goto out;
     }
@@ -624,6 +652,7 @@ static void carp_advertise(unsigned long data)
     struct carp_stat *cs = &cp->cstat;
     struct sk_buff *skb;
     int len;
+    unsigned short sum;
     struct ethhdr *eth;
     struct iphdr *ip;
     struct carp_header *c;
@@ -637,7 +666,6 @@ static void carp_advertise(unsigned long data)
     skb = alloc_skb(len + 2, GFP_ATOMIC);
     if (!skb)
     {
-    	log("Failed to allocate new carp frame.\n");
     	cs->mem_errors++;
     	goto out;
     }
@@ -666,15 +694,23 @@ static void carp_advertise(unsigned long data)
     get_random_bytes(&ip->id, 2);
     ip_send_check(ip);
 
-    memcpy(c, ch, sizeof(struct carp_header));
 
     spin_lock(&cp->lock);
     cp->carp_adv_counter++;
     spin_unlock(&cp->lock);
 
+    ch->carp_type    = 1;
+    ch->carp_version = 2;
     ch->carp_counter[1] = htonl(cp->carp_adv_counter & 0xffffffff);
     ch->carp_counter[0] = htonl((cp->carp_adv_counter >> 32) & 0xffffffff);
     carp_hmac_sign(cp, ch);
+
+    /* Calculate the CARP packets checksum */
+    ch->carp_cksum = 0;
+    sum = cksum(ch, sizeof(struct carp_header));
+    ch->carp_cksum = htons(sum);
+
+    memcpy(c, ch, sizeof(struct carp_header));
 
     skb->protocol   = __constant_htons(ETH_P_IP);
     skb->mac_header = (void *)eth;

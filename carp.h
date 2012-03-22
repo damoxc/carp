@@ -45,7 +45,7 @@
 #define CARP_STATE_LEN           8
 
 #define MULTICAST(x)    (((x) & htonl(0xf0000000)) == htonl(0xe0000000))
-#define MULTICAST_ADDR  addr2val(224, 0, 0, 69)
+#define MULTICAST_ADDR  addr2val(224, 0, 0, 18)
 
 #define timeval_before(before, after)    		\
     (((before)->tv_sec == (after)->tv_sec) ? ((before)->tv_usec < (after)->tv_usec) : ((before)->tv_sec < (after)->tv_sec))
