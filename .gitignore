@@ -1,0 +1,8 @@
+*.o
+*.ko
+*.cmd
+.tmp_versions/
+modules.order
+Module.symvers
+ip_carp.mod.c
+carpctl
