@@ -89,7 +89,7 @@ static void carp_dev_setup(struct net_device *);
 static int carp_dev_close(struct net_device *);
 static int carp_dev_open(struct net_device *);
 static int carp_dev_ioctl (struct net_device *, struct ifreq *, int);
-static int carp_check_params(struct carp_ioctl_params);
+static int carp_check_params(struct carp *, struct carp_ioctl_params);
 
 static void carp_err(struct sk_buff *, u32);
 static int carp_rcv(struct sk_buff *);
@@ -152,29 +152,29 @@ static void carp_hmac_sign(struct carp *cp, struct carp_header *ch)
     }
 }
 
-static int carp_hmac_verify(struct carp *cp, struct carp_header *ch)
+static int carp_hmac_verify(struct carp *carp, struct carp_header *carp_hdr)
 {
     u8 tmp_md[CARP_SIG_LEN];
-    unsigned int keylen = sizeof(cp->carp_key);
+    unsigned int keylen = sizeof(carp->carp_key);
     struct scatterlist sg;
     struct hash_desc desc;
     carp_dbg("%s\n", __func__);
 
-    sg_assign_page(&sg, virt_to_page(ch->carp_counter));
-    sg.offset = ((unsigned long)(ch->carp_counter)) % PAGE_SIZE;
-    sg.length = sizeof(ch->carp_counter);
+    sg_assign_page(&sg, virt_to_page(carp_hdr->carp_counter));
+    sg.offset = ((unsigned long)(carp_hdr->carp_counter)) % PAGE_SIZE;
+    sg.length = sizeof(carp_hdr->carp_counter);
 
-    desc.tfm = cp->tfm;
+    desc.tfm = carp->tfm;
     desc.flags = 0;
 
-    if (crypto_hash_setkey(desc.tfm, cp->carp_key, keylen) ||
-        crypto_hash_digest(&desc, &sg, sg.length, ch->carp_md)) {
+    if (crypto_hash_setkey(desc.tfm, carp->carp_key, keylen) ||
+        crypto_hash_digest(&desc, &sg, sg.length, carp_hdr->carp_md)) {
     }
 
-    return memcmp(tmp_md, ch->carp_md, CARP_SIG_LEN);
+    return memcmp(tmp_md, carp_hdr->carp_md, CARP_SIG_LEN);
 }
 
-static int carp_check_params(struct carp_ioctl_params p)
+static int carp_check_params(struct carp *carp, struct carp_ioctl_params p)
 {
     carp_dbg("%s\n", __func__);
     if (p.state != INIT && p.state != BACKUP && p.state != MASTER)
@@ -183,7 +183,7 @@ static int carp_check_params(struct carp_ioctl_params p)
     	return -1;
     }
 
-    if (!__dev_get_by_name(dev_net(carp_dev), p.devname))
+    if (!__dev_get_by_name(dev_net(carp->dev), p.devname))
     {
     	log("No such device %s.\n", p.devname);
     	return -2;
@@ -381,14 +381,16 @@ static int carp_dev_xmit(struct sk_buff *skb, struct net_device *dev)
     return 0;
 }
 
-static int carp_dev_ioctl (struct net_device *dev, struct ifreq *ifr, int cmd)
+static int carp_dev_ioctl (struct net_device *carp_dev, struct ifreq *ifr, int cmd)
 {
     int err = 0;
-    struct carp *cp = netdev_priv(dev);
+    struct carp *carp = netdev_priv(carp_dev);
+    //struct carp_net *cn = net_generic(dev_net(carp_dev), carp_net_id);
+
     struct net_device *tdev = NULL;
     struct carp_ioctl_params p;
 
-    log("%s\n", __func__);
+    carp_dbg("%s\n", __func__);
 
     memset(&p, 0, sizeof(p));
 
@@ -411,13 +413,13 @@ static int carp_dev_ioctl (struct net_device *dev, struct ifreq *ifr, int cmd)
     		if (iph.version != 4 || iph.protocol != IPPROTO_CARP || iph.ihl != 5 || !MULTICAST(iph.daddr))
     			goto err_out;
 
-    		spin_lock(&cp->lock);
-    		carp_close(cp->dev);
+    		spin_lock(&carp->lock);
+    		carp_close(carp->dev);
 
-    		memcpy(&cp->iph, &iph, sizeof(iph));
+    		memcarpy(&carp->iph, &iph, sizeof(iph));
 
-    		carp_open(cp->dev);
-    		spin_unlock(&cp->lock);
+    		carp_open(carp->dev);
+    		spin_unlock(&carp->lock);
     		break;
 #endif
     	case SIOC_SETCARPPARAMS:
@@ -426,57 +428,58 @@ static int carp_dev_ioctl (struct net_device *dev, struct ifreq *ifr, int cmd)
     			goto err_out;
 
     		err = -EINVAL;
-    		if (carp_check_params(p))
+    		if (carp_check_params(carp, p))
     			goto err_out;
 
-    		log("Setting new CARP parameters.\n");
+    		carp_dbg("Setting new CARP parameters.\n");
 
-    		if (memcmp(p.devname, cp->odev->name, IFNAMSIZ) && (tdev = dev_get_by_name(dev_net(carp_dev), p.devname)) != NULL)
-    			carp_dev_close(cp->dev);
+    		if (memcmp(p.devname, carp->odev->name, IFNAMSIZ) && (tdev = dev_get_by_name(dev_net(carp_dev), p.devname)) != NULL)
+    			carp_dev_close(carp->dev);
 
-    		spin_lock(&cp->lock);
+
+    		spin_lock(&carp->lock);
 
     		if (tdev)
     		{
-    			cp->odev->flags = cp->oflags;
-    			dev_put(cp->odev);
+    			carp->odev->flags = carp->oflags;
+    			dev_put(carp->odev);
 
-    			cp->odev 	= tdev;
-    			cp->link 	= cp->odev->ifindex;
-    			cp->oflags 	= cp->odev->flags;
-    			cp->odev->flags |= IFF_BROADCAST | IFF_ALLMULTI;
+    			carp->odev 	= tdev;
+    			carp->link 	= carp->odev->ifindex;
+    			carp->oflags 	= carp->odev->flags;
+    			carp->odev->flags |= IFF_BROADCAST | IFF_ALLMULTI;
     		}
 
-    		cp->md_timeout = p.md_timeout;
-    		cp->adv_timeout = p.adv_timeout;
+    		carp->md_timeout = p.md_timeout;
+    		carp->adv_timeout = p.adv_timeout;
 
-    		carp_set_state(cp, p.state);
-    		memcpy(cp->carp_pad, p.carp_pad, sizeof(cp->carp_pad));
-    		memcpy(cp->carp_key, p.carp_key, sizeof(cp->carp_key));
-    		cp->hdr.carp_vhid = p.carp_vhid;
-    		cp->hdr.carp_advbase = p.carp_advbase;
-    		cp->hdr.carp_advskew = p.carp_advskew;
+    		carp_set_state(carp, p.state);
+    		memcpy(carp->carp_pad, p.carp_pad, sizeof(carp->carp_pad));
+    		memcpy(carp->carp_key, p.carp_key, sizeof(carp->carp_key));
+    		carp->hdr.carp_vhid = p.carp_vhid;
+    		carp->hdr.carp_advbase = p.carp_advbase;
+    		carp->hdr.carp_advskew = p.carp_advskew;
 
-    		spin_unlock(&cp->lock);
+    		spin_unlock(&carp->lock);
     		if (tdev)
-    			carp_dev_open(cp->dev);
+    			carp_dev_open(carp->dev);
     		break;
     	case SIOC_GETCARPPARAMS:
 
-    		log("Dumping CARP parameters.\n");
+    		carp_dbg("Dumping CARP parameters.\n");
 
-    		spin_lock(&cp->lock);
-    		p.state = cp->state;
-    		memcpy(p.carp_pad, cp->carp_pad, sizeof(cp->carp_pad));
-    		memcpy(p.carp_key, cp->carp_key, sizeof(cp->carp_key));
-    		p.carp_vhid = cp->hdr.carp_vhid;
-    		p.carp_advbase = cp->hdr.carp_advbase;
-    		p.carp_advskew = cp->hdr.carp_advskew;
-    		p.md_timeout = cp->md_timeout;
-    		p.adv_timeout = cp->adv_timeout;
-    		memcpy(p.devname, cp->odev->name, sizeof(p.devname));
+    		spin_lock(&carp->lock);
+    		p.state = carp->state;
+    		memcpy(p.carp_pad, carp->carp_pad, sizeof(carp->carp_pad));
+    		memcpy(p.carp_key, carp->carp_key, sizeof(carp->carp_key));
+    		p.carp_vhid = carp->hdr.carp_vhid;
+    		p.carp_advbase = carp->hdr.carp_advbase;
+    		p.carp_advskew = carp->hdr.carp_advskew;
+    		p.md_timeout = carp->md_timeout;
+    		p.adv_timeout = carp->adv_timeout;
+    		memcpy(p.devname, carp->odev->name, sizeof(p.devname));
     		p.devname[sizeof(p.devname) - 1] = '\0';
-    		spin_unlock(&cp->lock);
+    		spin_unlock(&carp->lock);
 
     		err = -EFAULT;
     		if (copy_to_user(ifr->ifr_ifru.ifru_data, &p, sizeof(p)))
@@ -573,8 +576,8 @@ static void carp_dev_setup(struct net_device *carp_dev)
     memset(carp->carp_key, 1, sizeof(carp->carp_key));
     get_random_bytes(&carp->carp_adv_counter, 8);
 
-    get_random_bytes(&carp->hdr.carp_advskew, 1);
-    get_random_bytes(&carp->hdr.carp_advbase, 1);
+    carp->hdr.carp_advskew = 0;
+    carp->hdr.carp_advbase = 1;
 
     dump_addr_info(carp);
 
