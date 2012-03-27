@@ -46,9 +46,14 @@ void dump_addr_info(struct carp *carp)
 {
 	int i;
 
-	printk(KERN_INFO "CARP addr: hw=");
-	for (i=0; i<ETH_ALEN; ++i)
-		printk("%02x%c", (unsigned char)carp->odev->dev_addr[i], (i==ETH_ALEN-1)?' ':':');
+    printk("carp: %s addr: hw=", carp->dev->name);
+    if (carp->odev) {
+        for (i=0; i<ETH_ALEN; ++i)
+            printk("%02x%c", (unsigned char)carp->odev->dev_addr[i], (i==ETH_ALEN-1)?' ':':');
+    } else {
+        printk("n/a");
+    }
+
 	printk(", sw=");
 	for (i=0; i<4; ++i)
 		printk("%d%c", (ntohl(carp->iph.saddr) >> (3-i)*8)&0xff, (i==3)?' ':'.');

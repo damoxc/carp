@@ -12,8 +12,7 @@ default:
 	gcc -W -Wall carpctl.c -o carpctl
 
 copy:
-	scp ip_carp.ko carpctl mtest:carp/
-	scp ip_carp.ko carpctl pcix:aWork/carp/
+	scp ip_carp.ko carpctl master:carp/
 
 clean:
 	rm -f *.o *.ko *.mod.* .*.cmd *~ carpctl

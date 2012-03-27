@@ -42,6 +42,7 @@ static int carp_hmac_verify(struct carp *carp, struct carp_header *carp_hdr)
     return memcmp(tmp_md, carp_hdr->carp_md, CARP_SIG_LEN);
 }
 
+/*----------------------------- Proto  functions ----------------------------*/
 static void carp_err(struct sk_buff *skb, u32 info)
 {
     carp_dbg("%s\n", __func__);
@@ -50,6 +51,9 @@ static void carp_err(struct sk_buff *skb, u32 info)
 
 static int carp_rcv(struct sk_buff *skb)
 {
+    carp_dbg("%s\n", __func__);
+    return 0;
+#if 0
     struct iphdr *iph;
     struct net_device *carp_dev;
     struct carp *carp = netdev_priv(carp_dev);
@@ -57,7 +61,6 @@ static int carp_rcv(struct sk_buff *skb)
     int err = 0;
     u64 tmp_counter;
     struct timeval carp_tv, carp_hdr_tv;
-    carp_dbg("%s\n", __func__);
 
     //carp_dbg("%s: state=%d\n", __func__, cp->state);
 
@@ -152,8 +155,10 @@ err_out_skb_drop:
     spin_unlock(&carp->lock);
 
     return err;
+#endif
 }
 
+/*-------------------------- Registration functions --------------------------*/
 static struct net_protocol carp_protocol __read_mostly = {
     .handler     = carp_rcv,
     .err_handler = carp_err,
@@ -162,6 +167,7 @@ static struct net_protocol carp_protocol __read_mostly = {
 int carp_register_protocol(void)
 {
     int res;
+    carp_dbg("Registering CARP protocol on %d", IPPROTO_CARP);
 
     res = inet_add_protocol(&carp_protocol, IPPROTO_CARP);
     if (res)
@@ -173,6 +179,8 @@ int carp_register_protocol(void)
 int carp_unregister_protocol(void)
 {
     int res;
+    carp_dbg("Unregistering CARP protocol");
+
     res = inet_del_protocol(&carp_protocol, IPPROTO_CARP);
     if (res)
         return res;

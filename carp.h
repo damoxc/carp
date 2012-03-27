@@ -45,7 +45,7 @@
 #define CARP_STATE_LEN           8
 
 #define MULTICAST(x)    (((x) & htonl(0xf0000000)) == htonl(0xe0000000))
-#define MULTICAST_ADDR  addr2val(224, 0, 0, 18)
+#define MULTICAST_ADDR  addr2val(224, 0, 0, 1)
 
 #define timeval_before(before, after)    		\
     (((before)->tv_sec == (after)->tv_sec) ? ((before)->tv_usec < (after)->tv_usec) : ((before)->tv_sec < (after)->tv_sec))
@@ -95,6 +95,7 @@ struct carp_net {
     struct net            *net;
     struct list_head       dev_list;
     struct proc_dir_entry *proc_dir;
+    struct class_attribute class_attr_carp;
 };
 
 struct carp {
@@ -144,7 +145,9 @@ static inline char *carp_state_fmt(struct carp *carp)
     return NULL;
 }
 
+// Implemented in carp.c
 int carp_crypto_hmac(struct carp *, struct scatterlist *, u8 *);
+int carp_set_interface(struct carp *, char *);
 void carp_set_state(struct carp *, enum carp_state);
 
 // Implemented in carp_proto.c
@@ -156,13 +159,14 @@ void carp_create_debugfs(void);
 void carp_destroy_debugfs(void);
 
 // Implemented in carp_procfs.c
-void carp_create_proc_entry(struct carp *carp);
-void carp_remove_proc_entry(struct carp *carp);
-void __net_init carp_create_proc_dir(struct carp_net *cn);
-void __net_exit carp_destroy_proc_dir(struct carp_net *cn);
+void carp_create_proc_entry(struct carp *);
+void carp_remove_proc_entry(struct carp *);
+void __net_init carp_create_proc_dir(struct carp_net *);
+void __net_exit carp_destroy_proc_dir(struct carp_net *);
 
 // Implemented in carp_sysfs.c
-int carp_create_sysfs(struct carp_net *cn);
-void carp_destroy_sysfs(struct carp_net *cn);
+int carp_create_sysfs(struct carp_net *);
+void carp_destroy_sysfs(struct carp_net *);
+void carp_prepare_sysfs_group(struct carp *);
 
 #endif /* __CARP_H */

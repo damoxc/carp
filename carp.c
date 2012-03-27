@@ -195,6 +195,33 @@ static int carp_check_params(struct carp *carp, struct carp_ioctl_params p)
     return 0;
 }
 
+int carp_set_interface(struct carp *carp, char *dev_name)
+{
+    struct net_device *real_dev;
+    struct in_device *in_device;
+    carp_dbg("%s\n", __func__);
+
+    if (carp->dev == NULL)
+        return 1;
+
+    real_dev = dev_get_by_name(dev_net(carp->dev), dev_name);
+    if (real_dev) {
+        pr_info("%s: Setting carpdev to %s", carp->dev->name, real_dev->name);
+        carp->odev = real_dev;
+        carp->link = real_dev->ifindex;
+        in_device  = in_dev_get(real_dev);
+        if (in_device != NULL && in_device->ifa_list != NULL) {
+            carp->iph.saddr = in_device->ifa_list[0].ifa_address;
+        }
+
+        carp->odev->flags = carp->oflags;
+        carp->oflags = carp->odev->flags;
+        carp->odev->flags |= IFF_BROADCAST | IFF_ALLMULTI;
+    }
+
+    return 0;
+}
+
 void carp_set_state(struct carp *carp, enum carp_state state)
 {
     carp_dbg("%s\n", __func__);
