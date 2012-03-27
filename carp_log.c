@@ -42,19 +42,19 @@
 #include "carp.h"
 #include "carp_log.h"
 
-void dump_addr_info(struct carp *cp)
+void dump_addr_info(struct carp *carp)
 {
 	int i;
 
 	printk(KERN_INFO "CARP addr: hw=");
 	for (i=0; i<ETH_ALEN; ++i)
-		printk("%02x%c", (unsigned char)cp->odev->dev_addr[i], (i==ETH_ALEN-1)?' ':':');
+		printk("%02x%c", (unsigned char)carp->odev->dev_addr[i], (i==ETH_ALEN-1)?' ':':');
 	printk(", sw=");
 	for (i=0; i<4; ++i)
-		printk("%d%c", (ntohl(cp->iph.saddr) >> (3-i)*8)&0xff, (i==3)?' ':'.');
+		printk("%d%c", (ntohl(carp->iph.saddr) >> (3-i)*8)&0xff, (i==3)?' ':'.');
 	printk(", dst=");
 	for (i=0; i<4; ++i)
-		printk("%d%c", (ntohl(cp->iph.daddr) >> (3-i)*8)&0xff, (i==3)?' ':'.');
+		printk("%d%c", (ntohl(carp->iph.daddr) >> (3-i)*8)&0xff, (i==3)?' ':'.');
 	printk("\n");
 }
 
@@ -82,26 +82,26 @@ void dump_hmac_params(struct carp *carp)
 	printk("\n");
 }
 
-void dump_carp_header(struct carp_header *ch)
+void dump_carp_header(struct carp_header *carp_hdr)
 {
 	u64 counter;
 	int i;
 
-	counter = ntohl(ch->carp_counter[0]);
+	counter = ntohl(carp_hdr->carp_counter[0]);
 	counter = counter<<32;
-	counter += ntohl(ch->carp_counter[1]);
+	counter += ntohl(carp_hdr->carp_counter[1]);
 
 	log("type=%u, version=%u, vhid=%u, skew=%u, base=%u, counter=%llu, md={",
-			ch->carp_type,
-			ch->carp_version,
-			ch->carp_vhid,
-			ch->carp_advskew,
-			ch->carp_advbase,
+			carp_hdr->carp_type,
+			carp_hdr->carp_version,
+			carp_hdr->carp_vhid,
+			carp_hdr->carp_advskew,
+			carp_hdr->carp_advbase,
 			counter);
 
-	for (i=0; i<sizeof(ch->carp_md); ++i)
+	for (i=0; i<sizeof(carp_hdr->carp_md); ++i)
 	{
-		printk("%02x ", ch->carp_md[i]);
+		printk("%02x ", carp_hdr->carp_md[i]);
 	}
 	printk("}\n");
 }

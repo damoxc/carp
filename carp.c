@@ -100,8 +100,6 @@ static void carp_advertise(unsigned long);
 static int  __init carp_init(void);
 static void __exit carp_exit(void);
 
-static struct net_device *carp_dev;
-
 /*----------------------------- Global functions ----------------------------*/
 int carp_crypto_hmac(struct carp *carp, struct scatterlist *sg, u8 *carp_md)
 {
@@ -243,7 +241,7 @@ static void carp_master_down(unsigned long data)
     clear_bit(CARP_DATA_AVAIL, (long *)&carp->flags);
 }
 
-static int carp_dev_xmit(struct sk_buff *skb, struct net_device *dev)
+static int carp_dev_xmit(struct sk_buff *skb, struct net_device *carp_dev)
 {
     carp_dbg("%s\n", __func__);
 #if 0
@@ -296,28 +294,6 @@ static int carp_dev_ioctl (struct net_device *carp_dev, struct ifreq *ifr, int c
 
     switch (cmd)
     {
-#if 0
-    	case SIOC_SETIPHDR:
-
-    		log("Setting new header.\n");
-
-    		err = -EFAULT;
-    		if (copy_from_user(&iph, ifr->ifr_ifru.ifru_data, sizeof(iph)))
-    			goto err_out;
-
-    		err = -EINVAL;
-    		if (iph.version != 4 || iph.protocol != IPPROTO_CARP || iph.ihl != 5 || !MULTICAST(iph.daddr))
-    			goto err_out;
-
-    		spin_lock(&carp->lock);
-    		carp_close(carp->dev);
-
-    		memcarpy(&carp->iph, &iph, sizeof(iph));
-
-    		carp_open(carp->dev);
-    		spin_unlock(&carp->lock);
-    		break;
-#endif
     	case SIOC_SETCARPPARAMS:
     		err = -EFAULT;
     		if (copy_from_user(&p, ifr->ifr_ifru.ifru_data, sizeof(p)))
@@ -392,35 +368,34 @@ err_out:
     return err;
 }
 
-static struct net_device_stats *carp_dev_get_stats(struct net_device *dev)
+static struct net_device_stats *carp_dev_get_stats(struct net_device *carp_dev)
 {
-    struct carp *cp = netdev_priv(dev);
-    struct carp_stat *cs = &cp->cstat;
+    struct carp *carp = netdev_priv(carp_dev);
+    struct carp_stat *cs = &carp->cstat;
 
     carp_dbg("%s: crc=%8d, ver=%8d, mem=%8d, xmit=%8d | bytes_sent=%8d\n",
     		__func__,
     		cs->crc_errors, cs->ver_errors, cs->mem_errors, cs->xmit_errors,
     		cs->bytes_sent);
-    return &(cp->stat);
+    return &(carp->stat);
 }
 
-static int carp_dev_change_mtu(struct net_device *dev, int new_mtu)
+static int carp_dev_change_mtu(struct net_device *carp_dev, int new_mtu)
 {
-    log("%s\n", __func__);
-    dev->mtu = new_mtu;
+    carp_dev->mtu = new_mtu;
     return 0;
 }
 
-static int carp_set_mac_address(struct net_device *dev, void *addr)
+static int carp_set_mac_address(struct net_device *carp_dev, void *addr)
 {
-    struct carp *carp = netdev_priv(dev);
+    struct carp *carp = netdev_priv(carp_dev);
     struct sockaddr *address = addr;
 
     if (!is_valid_ether_addr(address->sa_data))
         return -EADDRNOTAVAIL;
 
-    memcpy(dev->dev_addr, address->sa_data, dev->addr_len);
-    memcpy(carp->hwaddr, address->sa_data, dev->addr_len);
+    memcpy(carp_dev->dev_addr, address->sa_data, carp_dev->addr_len);
+    memcpy(carp->hwaddr, address->sa_data, carp_dev->addr_len);
     return 0;
 }
 
@@ -522,41 +497,41 @@ out:
     return;
 }
 
-static int carp_dev_open(struct net_device *dev)
+static int carp_dev_open(struct net_device *carp_dev)
 {
-    struct carp *cp = netdev_priv(dev);
+    struct carp *carp = netdev_priv(carp_dev);
     struct rtable *rt;
     struct flowi4 fl4 = {
-        .flowi4_oif   = cp->link,
-        .daddr        = cp->iph.daddr,
-        .saddr        = cp->iph.saddr,
-        .flowi4_tos   = RT_TOS(cp->iph.tos),
+        .flowi4_oif   = carp->link,
+        .daddr        = carp->iph.daddr,
+        .saddr        = carp->iph.saddr,
+        .flowi4_tos   = RT_TOS(carp->iph.tos),
         .flowi4_proto = IPPROTO_CARP,
     };
     carp_dbg("%s", __func__);
 
-    rt = ip_route_output_key(dev_net(dev), &fl4);
+    rt = ip_route_output_key(dev_net(carp_dev), &fl4);
     if (rt == NULL)
         return -EADDRNOTAVAIL;
 
-    dev = rt->dst.dev;
+    carp_dev = rt->dst.dev;
     ip_rt_put(rt);
-    if (in_dev_get(dev) == NULL)
+    if (in_dev_get(carp_dev) == NULL)
     	return -EADDRNOTAVAIL;
-    cp->mlink = dev->ifindex;
-    ip_mc_inc_group(in_dev_get(dev), cp->iph.daddr);
+    carp->mlink = carp_dev->ifindex;
+    ip_mc_inc_group(in_dev_get(carp_dev), carp->iph.daddr);
 
     return 0;
 }
 
-static int carp_dev_close(struct net_device *dev)
+static int carp_dev_close(struct net_device *carp_dev)
 {
-    struct carp *cp = netdev_priv(dev);
-    struct in_device *in_dev = inetdev_by_index(dev_net(dev), cp->mlink);
+    struct carp *carp = netdev_priv(carp_dev);
+    struct in_device *in_dev = inetdev_by_index(dev_net(carp_dev), carp->mlink);
     carp_dbg("%s", __func__);
 
     if (in_dev) {
-    	ip_mc_dec_group(in_dev, cp->iph.daddr);
+    	ip_mc_dec_group(in_dev, carp->iph.daddr);
     	in_dev_put(in_dev);
     }
     return 0;
@@ -565,42 +540,33 @@ static int carp_dev_close(struct net_device *dev)
 /*
  * Called from registration process
  */
-static int carp_dev_init(struct net_device *dev)
+static int carp_dev_init(struct net_device *carp_dev)
 {
     struct net_device *tdev = NULL;
-    struct carp *cp;
+    struct carp *carp;
     struct iphdr *iph;
     int hlen = LL_MAX_HEADER;
     int mtu = 1500;
     carp_dbg("%s", __func__);
 
-    log("Begin %s for %s\n", __func__, dev->name);
-    cp = netdev_priv(dev);
-    iph = &cp->iph;
-
-    if (!iph->daddr)
-        pr_info("carp: !iph->daddr");
-
-    if (!MULTICAST(iph->daddr))
-        pr_info("carp: !MULTICAST(iph->daddr)");
-
-    if (!iph->saddr)
-        pr_info("carp: !iph->saddr");
+    log("Begin %s for %s\n", __func__, carp_dev->name);
+    carp = netdev_priv(carp_dev);
+    iph = &carp->iph;
 
     if (!iph->daddr || !MULTICAST(iph->daddr) || !iph->saddr)
     	return -EINVAL;
 
-    dev_hold(dev);
+    dev_hold(carp_dev);
 
-    cp->dev = dev;
-    strncpy(cp->name, dev->name, IFNAMSIZ);
+    carp->dev = carp_dev;
+    strncpy(carp->name, carp_dev->name, IFNAMSIZ);
 
-    ip_eth_mc_map(cp->iph.daddr, dev->dev_addr);
-    memcpy(dev->broadcast, &iph->daddr, 4);
+    ip_eth_mc_map(carp->iph.daddr, carp_dev->dev_addr);
+    memcpy(carp_dev->broadcast, &iph->daddr, 4);
 
     {
         struct flowi4 fl4 = {
-            .flowi4_oif   = cp->link,
+            .flowi4_oif   = carp->link,
             .daddr        = iph->daddr,
             .saddr        = iph->saddr,
             .flowi4_tos   = RT_TOS(iph->tos),
@@ -608,32 +574,32 @@ static int carp_dev_init(struct net_device *dev)
         };
     	struct rtable *rt;
 
-        rt = ip_route_output_key(dev_net(dev), &fl4);
-        if (rt != NULL) {
+        rt = ip_route_output_key(dev_net(carp_dev), &fl4);
+        if (!IS_ERR(rt)) {
     		tdev = rt->dst.dev;
     		ip_rt_put(rt);
         }
     }
 
-    cp->oflags      = cp->odev->flags;
-    dev->flags      |= IFF_BROADCAST | IFF_ALLMULTI;
-    cp->odev->flags |= IFF_BROADCAST | IFF_ALLMULTI;
+    carp->oflags      = carp->odev->flags;
+    carp_dev->flags   |= IFF_BROADCAST | IFF_ALLMULTI;
+    carp->odev->flags |= IFF_BROADCAST | IFF_ALLMULTI;
 
-    dev->netdev_ops = &carp_netdev_ops;
+    carp_dev->netdev_ops = &carp_netdev_ops;
 
-    if (!tdev && cp->link)
-    	tdev = __dev_get_by_index(dev_net(carp_dev), cp->link);
+    if (!tdev && carp->link)
+    	tdev = __dev_get_by_index(dev_net(carp_dev), carp->link);
 
     if (tdev) {
     	hlen = tdev->hard_header_len;
     	mtu = tdev->mtu;
     }
-    dev->iflink = cp->link;
+    carp_dev->iflink = carp->link;
 
-    dev->hard_header_len = hlen;
-    dev->mtu = mtu;
+    carp_dev->hard_header_len = hlen;
+    carp_dev->mtu = mtu;
 
-    carp_create_proc_entry(cp);
+    carp_create_proc_entry(carp);
 
     return 0;
 }
@@ -647,9 +613,9 @@ static u32 inline addr2val(u8 a1, u8 a2, u8 a3, u8 a4)
 
 static void carp_advertise(unsigned long data)
 {
-    struct carp *cp = (struct carp *)data;
-    struct carp_header *ch = &cp->hdr;
-    struct carp_stat *cs = &cp->cstat;
+    struct carp *carp = (struct carp *)data;
+    struct carp_header *ch = &carp->hdr;
+    struct carp_stat *cs = &carp->cstat;
     struct sk_buff *skb;
     int len;
     unsigned short sum;
@@ -658,7 +624,7 @@ static void carp_advertise(unsigned long data)
     struct carp_header *c;
     carp_dbg("%s", __func__);
 
-    if (cp->state == BACKUP || !cp->odev)
+    if (carp->state == BACKUP || !carp->odev)
     	return;
 
     len = sizeof(struct iphdr) + sizeof(struct carp_header) + sizeof(struct ethhdr);
@@ -677,8 +643,8 @@ static void carp_advertise(unsigned long data)
 
     memset(&(IPCB(skb)->opt), 0, sizeof(IPCB(skb)->opt));
 
-    ip_eth_mc_map(cp->iph.daddr, eth->h_dest);
-    memcpy(eth->h_source, cp->odev->dev_addr, ETH_ALEN);
+    ip_eth_mc_map(carp->iph.daddr, eth->h_dest);
+    memcpy(eth->h_source, carp->odev->dev_addr, ETH_ALEN);
     eth->h_proto 	= htons(ETH_P_IP);
 
     ip->ihl      = 5;
@@ -689,21 +655,21 @@ static void carp_advertise(unsigned long data)
     ip->ttl      = CARP_TTL;
     ip->protocol = IPPROTO_CARP;
     ip->check    = 0;
-    ip->saddr    = cp->iph.saddr;
-    ip->daddr    = cp->iph.daddr;
+    ip->saddr    = carp->iph.saddr;
+    ip->daddr    = carp->iph.daddr;
     get_random_bytes(&ip->id, 2);
     ip_send_check(ip);
 
 
-    spin_lock(&cp->lock);
-    cp->carp_adv_counter++;
-    spin_unlock(&cp->lock);
+    spin_lock(&carp->lock);
+    carp->carp_adv_counter++;
+    spin_unlock(&carp->lock);
 
     ch->carp_type    = 1;
     ch->carp_version = 2;
-    ch->carp_counter[1] = htonl(cp->carp_adv_counter & 0xffffffff);
-    ch->carp_counter[0] = htonl((cp->carp_adv_counter >> 32) & 0xffffffff);
-    carp_hmac_sign(cp, ch);
+    ch->carp_counter[1] = htonl(carp->carp_adv_counter & 0xffffffff);
+    ch->carp_counter[0] = htonl((carp->carp_adv_counter >> 32) & 0xffffffff);
+    carp_hmac_sign(carp, ch);
 
     /* Calculate the CARP packets checksum */
     ch->carp_cksum = 0;
@@ -714,15 +680,15 @@ static void carp_advertise(unsigned long data)
 
     skb->protocol   = __constant_htons(ETH_P_IP);
     skb->mac_header = (void *)eth;
-    skb->dev        = cp->odev;
+    skb->dev        = carp->odev;
     skb->pkt_type   = PACKET_MULTICAST;
 
-    netif_tx_lock(cp->odev);
-    if (!netif_queue_stopped(cp->odev))
+    netif_tx_lock(carp->odev);
+    if (!netif_queue_stopped(carp->odev))
     {
     	atomic_inc(&skb->users);
 
-    	if (cp->odev->netdev_ops->ndo_start_xmit(skb, cp->odev))
+    	if (carp->odev->netdev_ops->ndo_start_xmit(skb, carp->odev))
     	{
     		atomic_dec(&skb->users);
     		cs->xmit_errors++;
@@ -730,9 +696,9 @@ static void carp_advertise(unsigned long data)
     	}
     	cs->bytes_sent += len;
     }
-    netif_tx_unlock(cp->odev);
+    netif_tx_unlock(carp->odev);
 
-    mod_timer(&cp->adv_timer, jiffies + cp->adv_timeout*HZ);
+    mod_timer(&carp->adv_timer, jiffies + carp->adv_timeout*HZ);
 
     kfree_skb(skb);
 out:
