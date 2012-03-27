@@ -398,12 +398,6 @@ err_out:
 static struct net_device_stats *carp_dev_get_stats(struct net_device *carp_dev)
 {
     struct carp *carp = netdev_priv(carp_dev);
-    struct carp_stat *cs = &carp->cstat;
-
-    carp_dbg("%s: crc=%8d, ver=%8d, mem=%8d, xmit=%8d | bytes_sent=%8d\n",
-    		__func__,
-    		cs->crc_errors, cs->ver_errors, cs->mem_errors, cs->xmit_errors,
-    		cs->bytes_sent);
     return &(carp->stat);
 }
 
@@ -799,7 +793,7 @@ static int __net_init carp_net_init(struct net *net)
     INIT_LIST_HEAD(&cn->dev_list);
 
     carp_create_proc_dir(cn);
-    carp_create_sysfs(cn);
+    //carp_create_sysfs(cn);
 
     return 0;
 }
@@ -809,7 +803,7 @@ static void __net_exit carp_net_exit(struct net *net)
     struct carp_net *cn = net_generic(net, carp_net_id);
     carp_dbg("%s", __func__);
 
-    carp_destroy_sysfs(cn);
+    //carp_destroy_sysfs(cn);
     carp_destroy_proc_dir(cn);
 }
 
