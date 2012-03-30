@@ -95,7 +95,7 @@ static int carp_hmac_verify(struct carp *carp, struct carp_header *carp_hdr)
     sg_set_buf(&sg, carp_hdr->carp_counter, sizeof(carp_hdr->carp_counter));
     memset(tmp_md, 1, sizeof(tmp_md));
 
-    res = carp_crypto_hmac(carp, &sg, carp_hdr->carp_md);
+    res = carp_crypto_hmac(carp, &sg, tmp_md);
     if (res)
         return res;
 
