@@ -96,7 +96,7 @@ void dump_carp_header(struct carp_header *carp_hdr)
 	counter = counter<<32;
 	counter += ntohl(carp_hdr->carp_counter[1]);
 
-	log("type=%u, version=%u, vhid=%u, skew=%u, base=%u, counter=%llu, md={",
+	carp_dbg("carp: type=%u, version=%u, vhid=%u, skew=%u, base=%u, counter=%llu, md={",
 			carp_hdr->carp_type,
 			carp_hdr->carp_version,
 			carp_hdr->carp_vhid,

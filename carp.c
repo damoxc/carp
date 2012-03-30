@@ -1,5 +1,5 @@
 /*
- *     carp.c
+ * carp.c
  *
  * 2004 Copyright (c) Evgeniy Polyakov <johnpol@2ka.mipt.ru>
  * 2012 Copyright (c) Damien Churchill <damoxc@gmail.com>
@@ -80,6 +80,8 @@ MODULE_PARM_DESC(tx_queues, "Max number of transmit queues (default = 16)");
 
 int carp_net_id __read_mostly;
 
+static struct list_head carp_list;
+
 static int carp_dev_init(struct net_device *);
 static void carp_dev_uninit(struct net_device *);
 static void carp_dev_setup(struct net_device *);
@@ -95,70 +97,38 @@ static struct net_device_stats *carp_dev_get_stats(struct net_device *);
 static u32 inline addr2val(u8, u8, u8, u8);
 
 static void carp_master_down(unsigned long);
-static void carp_advertise(unsigned long);
 
 static int  __init carp_init(void);
 static void __exit carp_exit(void);
 
 /*----------------------------- Global functions ----------------------------*/
-int carp_crypto_hmac(struct carp *carp, struct scatterlist *sg, u8 *carp_md)
+static u32 inline addr2val(u8 a1, u8 a2, u8 a3, u8 a4)
 {
-    int res;
-    struct hash_desc desc;
-
-    res = crypto_hash_setkey(carp->hash, carp->carp_key, sizeof(carp->carp_key));
-    if (res)
-        return res;
-
-    desc.tfm   = carp->hash;
-    desc.flags = 0;
-
-    res = crypto_hash_digest(&desc, sg, sg->length, carp_md);
-    if (res);
-        return res;
-
-    return 0;
+    u32 ret;
+    ret = ((a1 << 24) | (a2 << 16) | (a3 << 8) | (a4 << 0));
+    return htonl(ret);
 }
 
-static void carp_hmac_sign(struct carp *carp, struct carp_header *carp_hdr)
+struct carp *carp_get_by_vhid(u8 vhid)
 {
-    struct scatterlist sg;
-    sg_set_buf(&sg, carp_hdr->carp_counter, sizeof(carp_hdr->carp_counter));
-    carp_crypto_hmac(carp, &sg, carp_hdr->carp_md);
-}
+    struct list_head *ptr;
+    struct carp *entry;
 
-static unsigned short cksum(const void * const buf_, const size_t len)
-{
-    const unsigned char *buf = (unsigned char *) buf_;
-    unsigned long sum = 0UL;
-    size_t evenlen = len & ~ (size_t) 1U;
-    size_t i = (size_t) 0U;
-
-    if (len <= (size_t) 0U) {
-        return 0U;
+    list_for_each(ptr, &carp_list) {
+        entry = list_entry(ptr, struct carp, list);
+        if (entry->hdr.carp_vhid == vhid)
+            return entry;
     }
-    do {
-        sum += (buf[i] << 8) | buf[i + 1];
-        if (sum > 0xffff) {
-            sum &= 0xffff;
-            sum++;
-        }
-        i += 2;
-    } while (i < evenlen);
-    if (i != evenlen) {
-        sum += buf[i] << 8;
-        if (sum > 0xffff) {
-            sum &= 0xffff;
-            sum++;
-        }
-    }
-    return (unsigned short) ~sum;
+    return NULL;
 }
 
 /*----------------------------- Device functions ----------------------------*/
 static void carp_dev_uninit(struct net_device *dev)
 {
     struct carp *carp = netdev_priv(dev);
+    carp_dbg("%s\n", __func__);
+
+    carp_dev_close(dev);
 
     if (timer_pending(&carp->md_timer))
     	del_timer_sync(&carp->md_timer);
@@ -168,6 +138,8 @@ static void carp_dev_uninit(struct net_device *dev)
     carp_remove_proc_entry(carp);
 
     crypto_free_hash(carp->hash);
+
+    list_del(&(carp->list));
 
     dev_put(carp->odev);
     dev_put(dev);
@@ -225,7 +197,7 @@ int carp_set_interface(struct carp *carp, char *dev_name)
 void carp_set_state(struct carp *carp, enum carp_state state)
 {
     carp_dbg("%s\n", __func__);
-    pr_info("%s: Setting CARP state from %d to %d.\n", __func__, carp->state, state);
+    pr_info("%s: setting state from %d to %d.\n", carp->name, carp->state, state);
     carp->state = state;
 
     switch (state)
@@ -465,10 +437,11 @@ static void carp_dev_setup(struct net_device *carp_dev)
     carp->md_timeout  = 3;
     carp->adv_timeout = 1;
     carp->state       = INIT;
+    carp->hdr.carp_vhid = 5;
 
     // FIXME: this needs improving
     /* Set the source IP address to the same as eth0 */
-    carp->odev = dev_get_by_name(dev_net(carp_dev), "eth0");
+    carp->odev = dev_get_by_name(dev_net(carp_dev), "eth1");
     if (carp->odev) {
         carp->link = carp->odev->ifindex;
         in_d       = in_dev_get(carp->odev);
@@ -496,7 +469,7 @@ static void carp_dev_setup(struct net_device *carp_dev)
     carp->adv_timer.data     = (unsigned long)carp;
     carp->adv_timer.function = carp_advertise;
 
-    carp->hash = crypto_alloc_hash("sha1", 0, CRYPTO_ALG_ASYNC);
+    carp->hash = crypto_alloc_hash("hmac(sha1)", 0, CRYPTO_ALG_ASYNC);
     if (!carp->hash) {
         pr_err("Failed to allocate SHA1 hash.\n");
         res = -EINVAL;
@@ -572,6 +545,7 @@ static int carp_dev_init(struct net_device *carp_dev)
 
     log("Begin %s for %s\n", __func__, carp_dev->name);
     carp = netdev_priv(carp_dev);
+    list_add(&(carp->list), &carp_list);
     iph = &carp->iph;
 
     if (!iph->daddr || !MULTICAST(iph->daddr) || !iph->saddr)
@@ -614,6 +588,7 @@ static int carp_dev_init(struct net_device *carp_dev)
     if (tdev) {
     	hlen = tdev->hard_header_len;
     	mtu = tdev->mtu;
+        carp_dev_open(carp->dev);
     }
     carp_dev->iflink = carp->link;
 
@@ -623,107 +598,6 @@ static int carp_dev_init(struct net_device *carp_dev)
     carp_create_proc_entry(carp);
 
     return 0;
-}
-
-static u32 inline addr2val(u8 a1, u8 a2, u8 a3, u8 a4)
-{
-    u32 ret;
-    ret = ((a1 << 24) | (a2 << 16) | (a3 << 8) | (a4 << 0));
-    return htonl(ret);
-}
-
-static void carp_advertise(unsigned long data)
-{
-    struct carp *carp = (struct carp *)data;
-    struct carp_header *ch = &carp->hdr;
-    struct carp_stat *cs = &carp->cstat;
-    struct sk_buff *skb;
-    int len;
-    unsigned short sum;
-    struct ethhdr *eth;
-    struct iphdr *ip;
-    struct carp_header *c;
-    carp_dbg("%s", __func__);
-
-    if (carp->state == BACKUP || !carp->odev)
-    	return;
-
-    len = sizeof(struct iphdr) + sizeof(struct carp_header) + sizeof(struct ethhdr);
-
-    skb = alloc_skb(len + 2, GFP_ATOMIC);
-    if (!skb)
-    {
-    	cs->mem_errors++;
-    	goto out;
-    }
-
-    skb_reserve(skb, 16);
-    eth = (struct ethhdr *) skb_push(skb, 14);
-    ip = (struct iphdr *)skb_put(skb, sizeof(struct iphdr));
-    c = (struct carp_header *)skb_put(skb, sizeof(struct carp_header));
-
-    memset(&(IPCB(skb)->opt), 0, sizeof(IPCB(skb)->opt));
-
-    ip_eth_mc_map(carp->iph.daddr, eth->h_dest);
-    memcpy(eth->h_source, carp->odev->dev_addr, ETH_ALEN);
-    eth->h_proto 	= htons(ETH_P_IP);
-
-    ip->ihl      = 5;
-    ip->version  = 4;
-    ip->tos      = 0;
-    ip->tot_len  = htons(len - sizeof(struct ethhdr));
-    ip->frag_off = 0;
-    ip->ttl      = CARP_TTL;
-    ip->protocol = IPPROTO_CARP;
-    ip->check    = 0;
-    ip->saddr    = carp->iph.saddr;
-    ip->daddr    = carp->iph.daddr;
-    get_random_bytes(&ip->id, 2);
-    ip_send_check(ip);
-
-
-    spin_lock(&carp->lock);
-    carp->carp_adv_counter++;
-    spin_unlock(&carp->lock);
-
-    ch->carp_type    = 1;
-    ch->carp_version = 2;
-    ch->carp_counter[1] = htonl(carp->carp_adv_counter & 0xffffffff);
-    ch->carp_counter[0] = htonl((carp->carp_adv_counter >> 32) & 0xffffffff);
-    carp_hmac_sign(carp, ch);
-
-    /* Calculate the CARP packets checksum */
-    ch->carp_cksum = 0;
-    sum = cksum(ch, sizeof(struct carp_header));
-    ch->carp_cksum = htons(sum);
-
-    memcpy(c, ch, sizeof(struct carp_header));
-
-    skb->protocol   = __constant_htons(ETH_P_IP);
-    skb->mac_header = (void *)eth;
-    skb->dev        = carp->odev;
-    skb->pkt_type   = PACKET_MULTICAST;
-
-    netif_tx_lock(carp->odev);
-    if (!netif_queue_stopped(carp->odev))
-    {
-    	atomic_inc(&skb->users);
-
-    	if (carp->odev->netdev_ops->ndo_start_xmit(skb, carp->odev))
-    	{
-    		atomic_dec(&skb->users);
-    		cs->xmit_errors++;
-    		log("Hard xmit error.\n");
-    	}
-    	cs->bytes_sent += len;
-    }
-    netif_tx_unlock(carp->odev);
-
-    mod_timer(&carp->adv_timer, jiffies + carp->adv_timeout*HZ);
-
-    kfree_skb(skb);
-out:
-    return;
 }
 
 static int carp_validate(struct nlattr *tb[], struct nlattr *data[])
@@ -821,6 +695,7 @@ static int __init carp_init(void)
     carp_dbg("%s", __func__);
 
     pr_info("carp: %s", DRV_DESC);
+    INIT_LIST_HEAD(&carp_list);
 
     res = register_pernet_subsys(&carp_net_ops);
     if (res)

@@ -44,8 +44,10 @@
 #define CARP_DEFAULT_TX_QUEUES  16
 #define CARP_STATE_LEN           8
 
+#define CARP_ADVERTISEMENT       1
+
 #define MULTICAST(x)    (((x) & htonl(0xf0000000)) == htonl(0xe0000000))
-#define MULTICAST_ADDR  addr2val(224, 0, 0, 1)
+#define MULTICAST_ADDR  addr2val(224, 0, 0, 18)
 
 #define timeval_before(before, after)    		\
     (((before)->tv_sec == (after)->tv_sec) ? ((before)->tv_usec < (after)->tv_usec) : ((before)->tv_sec < (after)->tv_sec))
@@ -129,7 +131,8 @@ struct carp {
     struct   proc_dir_entry *proc_entry;
     char     proc_file_name[IFNAMSIZ];
 
-    struct   dentry *debug_dir;
+    struct dentry           *debug_dir;
+    struct list_head         list;
 };
 
 static inline char *carp_state_fmt(struct carp *carp)
@@ -149,8 +152,10 @@ static inline char *carp_state_fmt(struct carp *carp)
 int carp_crypto_hmac(struct carp *, struct scatterlist *, u8 *);
 int carp_set_interface(struct carp *, char *);
 void carp_set_state(struct carp *, enum carp_state);
+struct carp * carp_get_by_vhid(u8);
 
 // Implemented in carp_proto.c
+void carp_advertise(unsigned long data);
 int carp_register_protocol(void);
 int carp_unregister_protocol(void);
 

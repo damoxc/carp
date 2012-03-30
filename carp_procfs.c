@@ -72,6 +72,7 @@ static int carp_info_seq_show(struct seq_file *seq, void *v)
     seq_printf(seq, "Adv Base: %d\n", carp_hdr->carp_advbase);
     seq_printf(seq, "Adv Skew: %d\n", carp_hdr->carp_advskew);
     seq_printf(seq, "CRC Errors: %d\n", carp_stat->crc_errors);
+    seq_printf(seq, "HMAC Errors: %d\n", carp_stat->hmac_errors);
     seq_printf(seq, "Ver Errors: %d\n", carp_stat->ver_errors);
     seq_printf(seq, "Mem Errors: %d\n", carp_stat->mem_errors);
     seq_printf(seq, "Xmit Errors: %d\n", carp_stat->xmit_errors);

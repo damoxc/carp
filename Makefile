@@ -11,7 +11,7 @@ default:
 	$(MAKE) -C $(KDIR) SUBDIRS=$(PWD) modules
 	gcc -W -Wall carpctl.c -o carpctl
 
-copy:
+copy: default
 	scp ip_carp.ko carpctl master:carp/
 
 clean:
