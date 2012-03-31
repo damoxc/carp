@@ -224,7 +224,6 @@ static int carp_proto_rcv(struct sk_buff *skb)
 
     carp = carp_get_by_vhid(carp_hdr->carp_vhid);
     if (carp == NULL) {
-        //carp_dbg("carp: received unknown vhid");
         return err;
     }
 
@@ -240,16 +239,6 @@ static int carp_proto_rcv(struct sk_buff *skb)
     	carp->cstat.ver_errors++;
     	goto err_out_skb_drop;
     }
-
-#if 0
-    if (carp_hdr->carp_vhid != carp->hdr.carp_vhid)
-    {
-    	carp_dbg("CARP virtual host id mismatch: remote=%d, local=%d.\n",
-    		carp_hdr->carp_vhid, carp->hdr.carp_vhid);
-    	carp->cstat.vhid_errors++;
-    	goto err_out_skb_drop;
-    }
-#endif
 
     if (carp_hmac_verify(carp, carp_hdr))
     {
