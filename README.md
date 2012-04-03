@@ -5,12 +5,10 @@ rough and based off of the code found from the netdev mailing list circa
 A rough plan is:
 
  - Add sysfs and procfs interfaces
- - Get MASTER/SLAVE failover working correctly
- - Allow network traffic to be transmitted/received over the interface
+ - Improve the speed of MASTER/BACKUP failover, currently takes ~2s
  - Ensure everything is async
 
 Known Issues:
 
- - Doesn't actually allow network traffic through yet
  - carp devices can use the same vhid
  - Causes kernel oops if eth0 isn't configured but does exist
