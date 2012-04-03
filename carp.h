@@ -43,6 +43,7 @@
 #define	CARP_SIG_LEN            20
 #define CARP_DEFAULT_TX_QUEUES  16
 #define CARP_STATE_LEN           8
+#define CARP_STATES "INIT", "MASTER", "BACKUP"
 
 #define CARP_ADVERTISEMENT       1
 
@@ -51,7 +52,6 @@
 
 #define timeval_before(before, after)    		\
     (((before)->tv_sec == (after)->tv_sec) ? ((before)->tv_usec < (after)->tv_usec) : ((before)->tv_sec < (after)->tv_sec))
-
 
 extern int carp_net_id;
 
@@ -148,6 +148,7 @@ struct carp {
 
     u8                      hwaddr[ETH_ALEN];
 
+    int                     carp_delayed_arp;
 	u64                     carp_adv_counter;
 
 	spinlock_t              lock;
@@ -191,6 +192,7 @@ void carp_create_debugfs(void);
 void carp_destroy_debugfs(void);
 
 // Implemented in carp_procfs.c
+void carp_proto_adv(struct carp *);
 void carp_create_proc_entry(struct carp *);
 void carp_remove_proc_entry(struct carp *);
 void __net_init carp_create_proc_dir(struct carp_net *);
