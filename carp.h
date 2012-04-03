@@ -132,7 +132,7 @@ struct carp {
     char     proc_file_name[IFNAMSIZ];
 
     struct dentry           *debug_dir;
-    struct list_head         list;
+    struct list_head         carp_list;
 };
 
 static inline char *carp_state_fmt(struct carp *carp)

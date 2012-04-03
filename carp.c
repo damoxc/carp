@@ -80,7 +80,7 @@ MODULE_PARM_DESC(tx_queues, "Max number of transmit queues (default = 16)");
 
 int carp_net_id __read_mostly;
 
-static struct list_head carp_list;
+static struct carp_net *cn_global;
 
 static int carp_dev_init(struct net_device *);
 static void carp_dev_uninit(struct net_device *);
@@ -114,8 +114,8 @@ struct carp *carp_get_by_vhid(u8 vhid)
     struct list_head *ptr;
     struct carp *entry;
 
-    list_for_each(ptr, &carp_list) {
-        entry = list_entry(ptr, struct carp, list);
+    list_for_each(ptr, &cn_global->dev_list) {
+        entry = list_entry(ptr, struct carp, carp_list);
         if (entry->hdr.carp_vhid == vhid)
             return entry;
     }
@@ -139,7 +139,7 @@ static void carp_dev_uninit(struct net_device *dev)
 
     crypto_free_hash(carp->hash);
 
-    list_del(&(carp->list));
+    list_del(&(cn_global->dev_list));
 
     dev_put(carp->odev);
     dev_put(dev);
@@ -165,6 +165,34 @@ static int carp_check_params(struct carp *carp, struct carp_ioctl_params p)
     	return -3;
 
     return 0;
+}
+
+static void carp_send_arp(struct carp *carp)
+{
+    struct in_device *in_dev;
+    struct in_ifaddr *ifa;
+    struct sk_buff *skb;
+
+    if (carp->dev == NULL || carp->odev == NULL)
+        return;
+
+    rcu_read_lock();
+    if ((in_dev = __in_dev_get_rcu(carp->dev)) == NULL) {
+        rcu_read_unlock();
+        return;
+    }
+
+    for (ifa = in_dev->ifa_list; ifa; ifa = ifa->ifa_next) {
+        skb = arp_create(ARPOP_REQUEST, ETH_P_ARP, ifa->ifa_address, carp->odev,
+                         ifa->ifa_address, NULL, carp->odev->dev_addr, carp->dev->dev_addr);
+        if (!skb) {
+            pr_err("%s: ARP packet allocation failed\n", carp->name);
+            continue;
+        }
+        arp_xmit(skb);
+    }
+
+    rcu_read_unlock();
 }
 
 int carp_set_interface(struct carp *carp, char *dev_name)
@@ -203,6 +231,7 @@ void carp_set_state(struct carp *carp, enum carp_state state)
     switch (state)
     {
     	case MASTER:
+            carp_send_arp(carp);
     		carp_call_queue(MASTER_QUEUE);
     		if (!timer_pending(&carp->adv_timer))
     			mod_timer(&carp->adv_timer, jiffies + carp->adv_timeout*HZ);
@@ -456,6 +485,7 @@ static void carp_dev_setup(struct net_device *carp_dev)
 
     carp->hdr.carp_advskew = 0;
     carp->hdr.carp_advbase = 1;
+    carp->hdr.carp_version = CARP_VERSION;
 
     dump_addr_info(carp);
 
@@ -545,7 +575,6 @@ static int carp_dev_init(struct net_device *carp_dev)
 
     log("Begin %s for %s\n", __func__, carp_dev->name);
     carp = netdev_priv(carp_dev);
-    list_add(&(carp->list), &carp_list);
     iph = &carp->iph;
 
     if (!iph->daddr || !MULTICAST(iph->daddr) || !iph->saddr)
@@ -596,6 +625,7 @@ static int carp_dev_init(struct net_device *carp_dev)
     carp_dev->mtu = mtu;
 
     carp_create_proc_entry(carp);
+    list_add_tail(&carp->carp_list, &cn_global->dev_list);
 
     return 0;
 }
@@ -666,6 +696,8 @@ static int __net_init carp_net_init(struct net *net)
     cn->net = net;
     INIT_LIST_HEAD(&cn->dev_list);
 
+    cn_global = cn;
+
     carp_create_proc_dir(cn);
     //carp_create_sysfs(cn);
 
@@ -695,7 +727,6 @@ static int __init carp_init(void)
     carp_dbg("%s", __func__);
 
     pr_info("carp: %s", DRV_DESC);
-    INIT_LIST_HEAD(&carp_list);
 
     res = register_pernet_subsys(&carp_net_ops);
     if (res)
