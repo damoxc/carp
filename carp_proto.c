@@ -223,9 +223,8 @@ static int carp_proto_rcv(struct sk_buff *skb)
 
 
     carp = carp_get_by_vhid(carp_hdr->carp_vhid);
-    if (carp == NULL) {
-        return err;
-    }
+    if (carp == NULL)
+        goto err_out_skb_drop;
 
     carp_dbg("carp: received packet (saddr=%pI4)\n", &(iph->saddr));
     dump_carp_header(carp_hdr);
@@ -305,8 +304,8 @@ static int carp_proto_rcv(struct sk_buff *skb)
 
 err_out_skb_drop:
     kfree_skb(skb);
-    spin_unlock(&carp->lock);
-
+    if (carp != NULL)
+        spin_unlock(&carp->lock);
     return err;
 }
 
