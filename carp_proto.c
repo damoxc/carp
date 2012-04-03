@@ -159,7 +159,8 @@ static void carp_proto_adv(struct carp *carp)
 
     ch->carp_type    = CARP_ADVERTISEMENT;
     ch->carp_version = CARP_VERSION;
-    ch->carp_pad1    = 0;
+    ch->carp_demote  = 0;
+    ch->carp_authlen = 7;
 
     ch->carp_counter[0] = htonl((carp->carp_adv_counter >> 32) & 0xffffffff);
     ch->carp_counter[1] = htonl(carp->carp_adv_counter & 0xffffffff);
