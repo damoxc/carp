@@ -54,13 +54,7 @@ void dump_addr_info(struct carp *carp)
         printk("n/a");
     }
 
-	printk(", sw=");
-	for (i=0; i<4; ++i)
-		printk("%d%c", (ntohl(carp->iph.saddr) >> (3-i)*8)&0xff, (i==3)?' ':'.');
-	printk(", dst=");
-	for (i=0; i<4; ++i)
-		printk("%d%c", (ntohl(carp->iph.daddr) >> (3-i)*8)&0xff, (i==3)?' ':'.');
-	printk("\n");
+	printk(", sw=%pI4, dst=%pI4\n", &(carp->iph.saddr), &(carp->iph.daddr));
 }
 
 void dump_hmac_params(struct carp *carp)
