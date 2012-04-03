@@ -30,7 +30,6 @@
 #include "carp.h"
 #include "carp_log.h"
 
-
 static unsigned short cksum(const void * const buf_, const size_t len)
 {
     const unsigned char *buf = (unsigned char *) buf_;
@@ -103,7 +102,7 @@ static int carp_hmac_verify(struct carp *carp, struct carp_header *carp_hdr)
 }
 
 /*----------------------------- Proto  functions ----------------------------*/
-static void carp_proto_adv(struct carp *carp)
+void carp_proto_adv(struct carp *carp)
 {
     struct carp_header *ch = &carp->hdr;
     struct carp_stat *cs = &carp->cstat;
@@ -141,7 +140,7 @@ static void carp_proto_adv(struct carp *carp)
 
     ip->ihl      = 5;
     ip->version  = 4;
-    ip->tos      = 0;
+    ip->tos      = IPTOS_LOWDELAY;
     ip->tot_len  = htons(len - sizeof(struct ethhdr));
     ip->frag_off = 0;
     ip->ttl      = CARP_TTL;
@@ -151,7 +150,6 @@ static void carp_proto_adv(struct carp *carp)
     ip->daddr    = carp->iph.daddr;
     get_random_bytes(&ip->id, 2);
     ip_send_check(ip);
-
 
     spin_lock(&carp->lock);
     carp->carp_adv_counter++;
@@ -172,7 +170,7 @@ static void carp_proto_adv(struct carp *carp)
     sum = cksum(ch, sizeof(struct carp_header));
     ch->carp_cksum = htons(sum);
 
-    dump_carp_header(ch);
+    //dump_carp_header(ch);
 
     memcpy(c, ch, sizeof(struct carp_header));
 
@@ -180,7 +178,6 @@ static void carp_proto_adv(struct carp *carp)
     skb->mac_header = (void *)eth;
     skb->dev        = carp->odev;
     skb->pkt_type   = PACKET_MULTICAST;
-
 
     netif_tx_lock(carp->odev);
     if (!netif_queue_stopped(carp->odev))
@@ -228,7 +225,7 @@ static int carp_proto_rcv(struct sk_buff *skb)
         goto err_out_skb_drop;
 
     carp_dbg("carp: received packet (saddr=%pI4)\n", &(iph->saddr));
-    dump_carp_header(carp_hdr);
+    //dump_carp_header(carp_hdr);
 
     spin_lock(&carp->lock);
 
