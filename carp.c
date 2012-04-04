@@ -514,7 +514,7 @@ static void carp_dev_setup(struct net_device *carp_dev)
     get_random_bytes(&carp->carp_adv_counter, 8);
 
     carp->hdr.carp_advskew = 0;
-    carp->hdr.carp_advbase = 0;
+    carp->hdr.carp_advbase = CARP_DFLTINTV;
     carp->hdr.carp_version = CARP_VERSION;
 
     dump_addr_info(carp);

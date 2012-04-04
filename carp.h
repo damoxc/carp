@@ -38,14 +38,20 @@
 #define DRV_DESC DRV_DESCRIPTION ": v" DRV_VERSION " (" DRV_RELDATE ")\n"
 
 #define IPPROTO_CARP           112
-#define	CARP_VERSION             2
 #define CARP_TTL               255
 #define	CARP_SIG_LEN            20
 #define CARP_DEFAULT_TX_QUEUES  16
 #define CARP_STATE_LEN           8
 #define CARP_STATES "INIT", "MASTER", "BACKUP"
 
-#define CARP_ADVERTISEMENT       1
+/* carp_version */
+#define	CARP_VERSION             2
+
+/* carp_type */
+#define CARP_ADVERTISEMENT       0x01
+
+/* carp_advbase */
+#define CARP_DFLTINTV            1
 
 #define MULTICAST(x)    (((x) & htonl(0xf0000000)) == htonl(0xe0000000))
 #define MULTICAST_ADDR  addr2val(224, 0, 0, 18)
