@@ -61,6 +61,10 @@
 
 extern int carp_net_id;
 
+extern int carp_preempt;
+extern int carp_max_devices;
+extern int carp_tx_queues;
+
 /*
  * carp->flags definitions.
  */

@@ -67,17 +67,21 @@
 #include "carp_queue.h"
 #include "carp_ioctl.h"
 
-static int max_carps = 1;
-static int tx_queues = CARP_DEFAULT_TX_QUEUES;
+int carp_preempt = 0;
+int carp_max_devices = 1;
+int carp_tx_queues = CARP_DEFAULT_TX_QUEUES;
 
 /*---------------------------- Module parameters ----------------------------*/
-module_param(max_carps, int, 0);
-MODULE_PARM_DESC(max_cards, "Max number of carp devices");
-module_param(tx_queues, int, 0);
+MODULE_PARM_DESC(preempt, "Pre-empt masters going down");
+module_param_named(preempt, carp_preempt, int, 0444);
+
+MODULE_PARM_DESC(max_carps, "Max number of carp devices");
+module_param_named(max_carps, carp_max_devices, int, 0444);
+
 MODULE_PARM_DESC(tx_queues, "Max number of transmit queues (default = 16)");
+module_param_named(tx_queues, carp_tx_queues, int, 0);
 
 /*----------------------------- Global variables ----------------------------*/
-
 int carp_net_id __read_mostly;
 
 static struct carp_net *cn_global;
@@ -713,7 +717,7 @@ int carp_create(struct net *net, const char *name)
 
     carp_dev = alloc_netdev_mq(sizeof(struct carp),
                                name ? name : "carp%d",
-                               carp_dev_setup, tx_queues);
+                               carp_dev_setup, carp_tx_queues);
     if (!carp_dev) {
         pr_err("%s: eek! can't alloc netdev!\n", name);
         rtnl_unlock();
@@ -773,6 +777,9 @@ static int __init carp_init(void)
 
     pr_info("carp: %s", DRV_DESC);
 
+    if (carp_preempt == 1)
+        carp_dbg("carp: Using master pre-emption.");
+
     res = register_pernet_subsys(&carp_net_ops);
     if (res)
         goto out;
@@ -787,7 +794,7 @@ static int __init carp_init(void)
 
     carp_create_debugfs();
 
-    for (i = 0; i < max_carps; i++) {
+    for (i = 0; i < carp_max_devices; i++) {
         res = carp_create(&init_net, NULL);
         if (res)
             goto err;
