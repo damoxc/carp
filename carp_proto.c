@@ -30,6 +30,8 @@
 #include "carp.h"
 #include "carp_log.h"
 
+static int carp_proto_rcv(struct carp_header *);
+
 static unsigned short cksum(const void * const buf_, const size_t len)
 {
     const unsigned char *buf = (unsigned char *) buf_;
@@ -194,7 +196,7 @@ void carp_proto_adv(struct carp *carp)
     }
     netif_tx_unlock(carp->odev);
 
-    mod_timer(&carp->adv_timer, jiffies + carp->adv_timeout*HZ);
+    mod_timer(&carp->adv_timer, jiffies + carp->adv_timeout);
 
     kfree_skb(skb);
 out:
@@ -207,24 +209,40 @@ static void carp_proto_err(struct sk_buff *skb, u32 info)
     kfree_skb(skb);
 }
 
-static int carp_proto_rcv(struct sk_buff *skb)
+static int carp_proto_rcv_ip4(struct sk_buff *skb)
 {
     int err = 0;
     struct iphdr *iph;
-    struct carp *carp;
     struct carp_header *carp_hdr;
+
+    iph = ip_hdr(skb);
+    //carp_dbg("carp: received packet (saddr=%pI4)\n", &(iph->saddr));
+
+    // TODO: implement greater packet verification checks here
+
+    carp_hdr = (struct carp_header *)skb->data;
+
+    // TODO: add CARP checksum verification here
+
+    err = carp_proto_rcv(carp_hdr);
+
+err_out_skb_drop:
+    kfree_skb(skb);
+
+    return err;
+}
+
+static int carp_proto_rcv(struct carp_header *carp_hdr)
+{
+    int err = 0;
+    struct carp *carp;
     u64 tmp_counter;
     struct timeval carp_tv, carp_hdr_tv;
 
-    iph = ip_hdr(skb);
-    carp_hdr = (struct carp_header *)skb->data;
-
-
     carp = carp_get_by_vhid(carp_hdr->carp_vhid);
     if (carp == NULL)
-        goto err_out_skb_drop;
+        return err;
 
-    carp_dbg("carp: received packet (saddr=%pI4)\n", &(iph->saddr));
     //dump_carp_header(carp_hdr);
 
     spin_lock(&carp->lock);
@@ -234,14 +252,14 @@ static int carp_proto_rcv(struct sk_buff *skb)
     	carp_dbg("%s: version mismatch: remote=%d, local=%d.\n",
     		carp->name, carp_hdr->carp_version, carp->hdr.carp_version);
     	carp->cstat.ver_errors++;
-    	goto err_out_skb_drop;
+    	goto err_out;
     }
 
     if (carp_hmac_verify(carp, carp_hdr))
     {
     	carp_dbg("%s: HMAC mismatch on received advertisement.\n", carp->name);
     	carp->cstat.hmac_errors++;
-    	goto err_out_skb_drop;
+    	goto err_out;
     }
 
     tmp_counter = ntohl(carp_hdr->carp_counter[0]);
@@ -252,7 +270,7 @@ static int carp_proto_rcv(struct sk_buff *skb)
     {
     	carp_dbg("Counter mismatch: remote=%llu, local=%llu.\n", tmp_counter, carp->carp_adv_counter);
     	carp->cstat.counter_errors++;
-    	goto err_out_skb_drop;
+    	goto err_out;
     }
 
     carp_tv.tv_sec = carp->hdr.carp_advbase;
@@ -300,10 +318,8 @@ static int carp_proto_rcv(struct sk_buff *skb)
     		break;
     }
 
-err_out_skb_drop:
-    kfree_skb(skb);
-    if (carp != NULL)
-        spin_unlock(&carp->lock);
+err_out:
+    spin_unlock(&carp->lock);
     return err;
 }
 
@@ -315,7 +331,7 @@ void carp_advertise(unsigned long data)
 
 /*-------------------------- Registration functions --------------------------*/
 static struct net_protocol carp_protocol __read_mostly = {
-    .handler     = carp_proto_rcv,
+    .handler     = carp_proto_rcv_ip4,
     .err_handler = carp_proto_err,
 };
 

@@ -59,6 +59,9 @@
 #define timeval_before(before, after)    		\
     (((before)->tv_sec == (after)->tv_sec) ? ((before)->tv_usec < (after)->tv_usec) : ((before)->tv_sec < (after)->tv_sec))
 
+#define timeval_to_ms(tv) \
+    ((tv->tv_sec * 1000) + (tv->tv_usec / USEC_PER_MSEC))
+
 extern int carp_net_id;
 
 extern int carp_preempt;
@@ -184,6 +187,17 @@ static inline char *carp_state_fmt(struct carp *carp)
             return "BACKUP";
     }
     return NULL;
+}
+
+static inline u32 carp_calculate_timeout(u8 mod, u8 advbase, u8 advskew)
+{
+    struct timeval tv;
+    tv.tv_sec = mod * advbase;
+    if (advbase == 0 && advskew == 0)
+        tv.tv_usec = mod * 1000000 / 256;
+    else
+        tv.tv_usec = advskew * 1000000 / 256;
+    return timeval_to_jiffies(&tv);
 }
 
 // Implemented in carp.c

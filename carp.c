@@ -244,16 +244,16 @@ void carp_set_state(struct carp *carp, enum carp_state state)
     	case MASTER:
     		carp_call_queue(MASTER_QUEUE);
     		if (!timer_pending(&carp->adv_timer))
-    			mod_timer(&carp->adv_timer, jiffies + carp->adv_timeout*HZ);
+    			mod_timer(&carp->adv_timer, jiffies + carp->adv_timeout);
     		break;
     	case BACKUP:
     		carp_call_queue(BACKUP_QUEUE);
     		if (!timer_pending(&carp->md_timer))
-    			mod_timer(&carp->md_timer, jiffies + carp->md_timeout*HZ);
+    			mod_timer(&carp->md_timer, jiffies + carp->md_timeout);
     		break;
     	case INIT:
     		if (!timer_pending(&carp->md_timer))
-    			mod_timer(&carp->md_timer, jiffies + carp->md_timeout*HZ);
+    			mod_timer(&carp->md_timer, jiffies + carp->md_timeout);
     		break;
     }
 }
@@ -278,7 +278,7 @@ static void carp_master_down(unsigned long data)
     if (carp->state != MASTER) {
     	if (test_bit(CARP_DATA_AVAIL, (long *)&carp->flags)) {
     		if (!timer_pending(&carp->md_timer))
-    			mod_timer(&carp->md_timer, jiffies + carp->md_timeout*HZ);
+    			mod_timer(&carp->md_timer, jiffies + carp->md_timeout);
     	} else {
             carp_set_state(carp, MASTER);
             carp_proto_adv(carp);
@@ -476,7 +476,6 @@ static void carp_dev_setup(struct net_device *carp_dev)
     int res;
     struct in_device *in_d;
     struct carp *carp = netdev_priv(carp_dev);
-    struct timeval tv;
 
     carp_dbg("%s\n", __func__);
 
@@ -523,19 +522,8 @@ static void carp_dev_setup(struct net_device *carp_dev)
 
     dump_addr_info(carp);
 
-    tv.tv_sec = 3 * carp->hdr.carp_advbase;
-    if (carp->hdr.carp_advbase == 0 && carp->hdr.carp_advskew == 0)
-        tv.tv_usec = 3 * 1000000 / 256;
-    else
-        tv.tv_usec = carp->hdr.carp_advskew * 1000000 / 256;
-    carp->md_timeout  = timeval_to_jiffies(&tv);
-
-    tv.tv_sec = carp->hdr.carp_advbase;
-    if (carp->hdr.carp_advbase == 0 && carp->hdr.carp_advskew == 0)
-        tv.tv_usec = 1 * 1000000 / 256;
-    else
-        tv.tv_usec = carp->hdr.carp_advskew * 1000000 / 256;
-    carp->adv_timeout = timeval_to_jiffies(&tv);
+    carp->md_timeout  = carp_calculate_timeout(3, carp->hdr.carp_advbase, carp->hdr.carp_advskew);
+    carp->adv_timeout = carp_calculate_timeout(1, carp->hdr.carp_advbase, carp->hdr.carp_advskew);
 
     init_timer(&carp->md_timer);
     carp->md_timer.expires   = jiffies + carp->md_timeout;

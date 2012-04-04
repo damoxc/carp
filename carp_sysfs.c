@@ -113,7 +113,10 @@ static ssize_t carp_store_adv_base(struct device *dev,
     }
 
     pr_info("%s: setting advertisement base to %d.\n", carp->name, new_value);
-    carp->hdr.carp_advskew = new_value;
+    carp->hdr.carp_advbase = new_value;
+
+    carp->md_timeout  = carp_calculate_timeout(3, new_value, carp->hdr.carp_advskew);
+    carp->adv_timeout = carp_calculate_timeout(1, new_value, carp->hdr.carp_advskew);
 
 out:
     return ret;
@@ -152,6 +155,9 @@ static ssize_t carp_store_adv_skew(struct device *dev,
 
     pr_info("%s: setting advertisement skew to %d.\n", carp->name, new_value);
     carp->hdr.carp_advskew = new_value;
+
+    carp->md_timeout  = carp_calculate_timeout(3, carp->hdr.carp_advbase, new_value);
+    carp->adv_timeout = carp_calculate_timeout(1, carp->hdr.carp_advbase, new_value);
 
 out:
     return ret;
