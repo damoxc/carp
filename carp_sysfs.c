@@ -21,7 +21,6 @@
 
 #include <linux/kernel.h>
 #include <linux/module.h>
-#include <linux/device.h>
 #include <linux/sched.h>
 #include <linux/fs.h>
 #include <linux/types.h>
@@ -34,20 +33,24 @@
 #include <linux/inet.h>
 #include <linux/rtnetlink.h>
 #include <linux/etherdevice.h>
+#include <linux/device.h>
 #include <net/net_namespace.h>
 #include <net/netns/generic.h>
 #include <linux/nsproxy.h>
 
 #include "carp.h"
 
+#define to_dev(obj) container_of(obj, struct device, kobj)
+#define to_carp(cd) ((struct carp *)(netdev_priv(to_net_dev(cd))))
+
 static ssize_t carp_show_carps(struct class *cls,
                                struct class_attribute *attr,
                                char *buf)
 {
-    struct carp_net *cn =
-        container_of(attr, struct carp_net, class_attr_carp);
-    int res = 0;
-    struct carp *carp;
+    //struct carp_net *cn =
+    //    container_of(attr, struct carp_net, class_attr_carp);
+    ssize_t res = 0;
+    //struct carp *carp;
 
     rtnl_lock();
 
@@ -59,7 +62,8 @@ static ssize_t carp_store_carps(struct class *cls,
                                 struct class_attribute *attr,
                                 const char *buffer, ssize_t count)
 {
-    return 0;
+    ssize_t res = 0;
+    return res;
 }
 
 static const void *carp_namespace(struct class *cls,
@@ -80,24 +84,91 @@ static const struct class_attribute class_attr_carp = {
     .namespace = carp_namespace,
 };
 
-static ssize_t carp_show_adv_skew(struct device *d,
+static ssize_t carp_show_adv_base(struct device *dev,
                                   struct device_attribute *attr,
-                                  const char *buf)
+                                  char *buf)
 {
-    return 0;
+    struct carp *carp = to_carp(dev);
+    return sprintf(buf, "%d\n", carp->hdr.carp_advbase);
 }
 
+static ssize_t carp_store_adv_base(struct device *dev,
+                                  struct device_attribute *attr,
+                                  const char *buf, ssize_t count)
+{
+    int new_value, ret = count;
+    struct carp *carp = to_carp(dev);
 
-static DEVICE_ATTR(adv_skew, S_IRUGO, carp_show_adv_skew, NULL);
+    if (sscanf(buf, "%d", &new_value) != 1) {
+        pr_err("%s: no adv_base value specified.\n", carp->name);
+        ret = -EINVAL;
+        goto out;
+    }
+
+    if (new_value < 0 || new_value > 255) {
+        pr_err("%s: invalid adv_base value, %d not in range 1-%d; rejected.\n",
+               carp->name, new_value, 255);
+        ret = -EINVAL;
+        goto out;
+    }
+
+    pr_info("%s: setting advertisement base to %d.\n", carp->name, new_value);
+    carp->hdr.carp_advskew = new_value;
+
+out:
+    return ret;
+}
+
+static DEVICE_ATTR(adv_base, S_IRUGO | S_IWUSR,
+                   carp_show_adv_base, carp_store_adv_base);
+
+static ssize_t carp_show_adv_skew(struct device *dev,
+                                  struct device_attribute *attr,
+                                  char *buf)
+{
+    struct carp *carp = to_carp(dev);
+    return sprintf(buf, "%d\n", carp->hdr.carp_advskew);
+}
+
+static ssize_t carp_store_adv_skew(struct device *dev,
+                                  struct device_attribute *attr,
+                                  const char *buf, ssize_t count)
+{
+    int new_value, ret = count;
+    struct carp *carp = to_carp(dev);
+
+    if (sscanf(buf, "%d", &new_value) != 1) {
+        pr_err("%s: no adv_skew value specified.\n", carp->name);
+        ret = -EINVAL;
+        goto out;
+    }
+
+    if (new_value < 0 || new_value > 255) {
+        pr_err("%s: invalid adv_skew value, %d not in range 1-%d; rejected.\n",
+               carp->name, new_value, 254);
+        ret = -EINVAL;
+        goto out;
+    }
+
+    pr_info("%s: setting advertisement skew to %d.\n", carp->name, new_value);
+    carp->hdr.carp_advskew = new_value;
+
+out:
+    return ret;
+}
+
+static DEVICE_ATTR(adv_skew, S_IRUGO | S_IWUSR,
+                   carp_show_adv_skew, carp_store_adv_skew);
 
 static struct attribute *per_carp_attrs[] = {
+    &dev_attr_adv_base.attr,
     &dev_attr_adv_skew.attr,
     NULL,
 };
 
 static struct attribute_group carp_group = {
     .name  = "carp",
-    .attrs = per_carp_attrs
+    .attrs = per_carp_attrs,
 };
 
 /*
@@ -117,6 +188,7 @@ int carp_create_sysfs(struct carp_net *cn)
 
 void carp_destroy_sysfs(struct carp_net *cn)
 {
+    netdev_class_remove_file(&cn->class_attr_carp);
 }
 
 /*

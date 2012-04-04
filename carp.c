@@ -669,6 +669,7 @@ static int carp_dev_init(struct net_device *carp_dev)
     carp_dev->mtu = mtu;
 
     carp_create_proc_entry(carp);
+    carp_prepare_sysfs_group(carp);
     list_add_tail(&carp->carp_list, &cn_global->dev_list);
 
     return 0;
