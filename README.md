@@ -5,7 +5,8 @@ rough and based off of the code found from the netdev mailing list circa
 A rough plan is:
 
  - Add sysfs and procfs interfaces
- - Improve the speed of MASTER/BACKUP failover, currently takes ~2s
+ - Add the group demote stuff that obsd CARP has
+ - Allow a carp interface to be started without a backing device
  - Ensure everything is async
 
 Known Issues:
