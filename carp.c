@@ -550,13 +550,10 @@ static void carp_dev_setup(struct net_device *carp_dev)
         goto out;
     }
 
-    dump_hmac_params(carp);
-
     res = carp_init_queues();
     if (res)
         goto err_out_crypto_free;
 
-    //add_timer(&carp->md_timer);
     return;
 
 err_out_crypto_free:
@@ -645,8 +642,6 @@ static int carp_dev_init(struct net_device *carp_dev)
 
     carp->dev = carp_dev;
     strncpy(carp->name, carp_dev->name, IFNAMSIZ);
-
-    dump_addr_info(carp);
 
     carp_create_proc_entry(carp);
     carp_prepare_sysfs_group(carp);
