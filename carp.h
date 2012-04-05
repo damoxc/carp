@@ -143,6 +143,7 @@ struct carp_net {
 struct carp {
 	struct net_device_stats stat;
 	struct net_device      *dev, *odev;
+
 	char                    name[IFNAMSIZ];
 
 	int	                    link, mlink;
@@ -166,6 +167,7 @@ struct carp {
 
     u8                      hwaddr[ETH_ALEN];
 
+    int                     carp_bow_out;
     int                     carp_delayed_arp;
 	u64                     carp_adv_counter;
 
@@ -208,7 +210,9 @@ static inline u32 carp_calculate_timeout(u8 mod, u8 advbase, u8 advskew)
 // Implemented in carp.c
 int carp_crypto_hmac(struct carp *, struct scatterlist *, u8 *);
 int carp_set_interface(struct carp *, char *);
+void carp_set_run(struct carp *, sa_family_t);
 void carp_set_state(struct carp *, enum carp_state);
+void carp_master_down(unsigned long);
 struct carp * carp_get_by_vhid(u8);
 
 // Implemented in carp_proto.c

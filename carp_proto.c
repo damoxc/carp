@@ -118,13 +118,12 @@ void carp_proto_adv(struct carp *carp)
     if (carp->state == BACKUP || !carp->odev)
     	return;
 
-    carp_dbg("%s: sending advertisement", carp->name);
+    //carp_dbg("%s: sending advertisement", carp->name);
 
     len = sizeof(struct iphdr) + sizeof(struct carp_header) + sizeof(struct ethhdr);
 
     skb = alloc_skb(len + 2, GFP_ATOMIC);
-    if (!skb)
-    {
+    if (!skb) {
     	cs->mem_errors++;
     	goto out;
     }
@@ -162,8 +161,14 @@ void carp_proto_adv(struct carp *carp)
     ch->carp_demote  = 0;
     ch->carp_authlen = 7;
     ch->carp_vhid    = carp->vhid;
-    ch->carp_advbase = carp->advbase;
-    ch->carp_advskew = carp->advskew;
+
+    if (carp->carp_bow_out) {
+        ch->carp_advbase = 255;
+        ch->carp_advskew = 255;
+    } else {
+        ch->carp_advbase = carp->advbase;
+        ch->carp_advskew = carp->advskew;
+    }
 
     ch->carp_counter[0] = htonl((carp->carp_adv_counter >> 32) & 0xffffffff);
     ch->carp_counter[1] = htonl(carp->carp_adv_counter & 0xffffffff);
@@ -199,7 +204,8 @@ void carp_proto_adv(struct carp *carp)
     }
     netif_tx_unlock(carp->odev);
 
-    mod_timer(&carp->adv_timer, jiffies + carp->adv_timeout);
+    if (!carp->carp_bow_out)
+        mod_timer(&carp->adv_timer, jiffies + carp->adv_timeout);
 
     kfree_skb(skb);
 out:
@@ -219,7 +225,7 @@ static int carp_proto_rcv_ip4(struct sk_buff *skb)
     struct carp_header *carp_hdr;
 
     iph = ip_hdr(skb);
-    carp_dbg("carp: received packet (saddr=%pI4)\n", &(iph->saddr));
+    //carp_dbg("carp: received packet (saddr=%pI4)\n", &(iph->saddr));
 
     // TODO: implement greater packet verification checks here
 
@@ -246,7 +252,7 @@ static int carp_proto_rcv(struct carp_header *carp_hdr)
     if (carp == NULL)
         return err;
 
-    dump_carp_header(carp_hdr);
+    //dump_carp_header(carp_hdr);
 
     spin_lock(&carp->lock);
 
@@ -268,12 +274,13 @@ static int carp_proto_rcv(struct carp_header *carp_hdr)
     tmp_counter = tmp_counter<<32;
     tmp_counter += ntohl(carp_hdr->carp_counter[1]);
 
-    if (carp->state == BACKUP && ++carp->carp_adv_counter != tmp_counter)
-    {
+#if 0
+    if (carp->state == BACKUP && ++carp->carp_adv_counter != tmp_counter) {
     	carp_dbg("Counter mismatch: remote=%llu, local=%llu.\n", tmp_counter, carp->carp_adv_counter);
     	carp->cstat.counter_errors++;
     	goto err_out;
     }
+#endif
 
     c_tv.tv_sec = carp->advbase;
     if (carp->advbase == 0 && carp->advskew == 0)
@@ -313,20 +320,23 @@ static int carp_proto_rcv(struct carp_header *carp_hdr)
 #if 0
             if (carp_preempt && timeval_before(&c_tv, &ch_tv) &&
                 carp_hdr->carp_demote >= carp_demote_count(carp)) {
-    			carp_set_state(carp, MASTER);
+                carp_master_down((unsigned long)carp);
                 break;
             }
 
             if (carp_hdr->carp_demote > carp_demote_count(carp)) {
-    			carp_set_state(carp, MASTER);
+                carp_master_down((unsigned long)carp);
                 break;
             }
 #endif
 
             c_tv.tv_sec = carp->advbase * 3;
             if (carp->advbase && timeval_before(&c_tv, &ch_tv)) {
-    			carp_set_state(carp, MASTER);
+                mod_timer(&carp->md_timer, jiffies + 1);
+                break;
     		}
+
+            carp_set_run(carp, 0);
     		break;
     }
 

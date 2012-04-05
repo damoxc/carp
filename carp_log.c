@@ -46,7 +46,7 @@ void dump_addr_info(struct carp *carp)
 {
 	int i;
 
-    printk("carp: %s addr: hw=", carp->dev->name);
+    printk("%s: addresses - hw=", carp->dev->name);
     if (carp->odev) {
         for (i=0; i<ETH_ALEN; ++i)
             printk("%02x%c", (unsigned char)carp->odev->dev_addr[i], (i==ETH_ALEN-1)?' ':':');

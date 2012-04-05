@@ -25,7 +25,7 @@
 
 #include "carp.h"
 
-#define CONFIG_CARP_DEBUG 1
+//#define CONFIG_CARP_DEBUG 1
 
 #ifdef CONFIG_CARP_DEBUG
 #define log(f, a...) pr_info(f, ##a)

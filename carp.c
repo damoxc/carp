@@ -85,6 +85,7 @@ module_param_named(tx_queues, carp_tx_queues, int, 0);
 int carp_net_id __read_mostly;
 
 static struct carp_net *cn_global;
+static void carp_del_all_timeouts(struct carp *);
 
 static int carp_dev_init(struct net_device *);
 static void carp_dev_uninit(struct net_device *);
@@ -99,8 +100,6 @@ static int carp_dev_xmit(struct sk_buff *, struct net_device *);
 static struct net_device_stats *carp_dev_get_stats(struct net_device *);
 
 static u32 inline addr2val(u8, u8, u8, u8);
-
-static void carp_master_down(unsigned long);
 
 static int  __init carp_init(void);
 static void __exit carp_exit(void);
@@ -130,22 +129,14 @@ struct carp *carp_get_by_vhid(u8 vhid)
 static void carp_dev_uninit(struct net_device *dev)
 {
     struct carp *carp = netdev_priv(dev);
-    carp_dbg("%s\n", __func__);
 
-    carp_dev_close(dev);
-
-    if (timer_pending(&carp->md_timer))
-    	del_timer_sync(&carp->md_timer);
-    if (timer_pending(&carp->adv_timer))
-    	del_timer_sync(&carp->adv_timer);
-
+    carp_del_all_timeouts(carp);
     carp_remove_proc_entry(carp);
-
     crypto_free_hash(carp->hash);
-
     list_del(&(cn_global->dev_list));
 
-    dev_put(carp->odev);
+    if (carp->odev)
+        dev_put(carp->odev);
     dev_put(dev);
 }
 
@@ -171,14 +162,23 @@ static int carp_check_params(struct carp *carp, struct carp_ioctl_params p)
     return 0;
 }
 
+static void carp_del_all_timeouts(struct carp *carp)
+{
+    if (timer_pending(&carp->md_timer))
+        del_timer_sync(&carp->md_timer);
+    if (timer_pending(&carp->adv_timer))
+        del_timer_sync(&carp->adv_timer);
+}
+
 static void carp_send_arp(struct carp *carp)
 {
     struct in_device *in_dev;
     struct in_ifaddr *ifa;
     struct sk_buff *skb;
 
-    if (carp->dev == NULL || carp->odev == NULL)
+    if (carp->dev == NULL || carp->odev == NULL) {
         return;
+    }
 
     rcu_read_lock();
     if ((in_dev = __in_dev_get_rcu(carp->dev)) == NULL) {
@@ -202,8 +202,7 @@ static void carp_send_arp(struct carp *carp)
 int carp_set_interface(struct carp *carp, char *dev_name)
 {
     struct net_device *real_dev;
-    struct in_device *in_device;
-    carp_dbg("%s\n", __func__);
+    struct in_device *in_dev;
 
     if (carp->dev == NULL)
         return 1;
@@ -213,22 +212,26 @@ int carp_set_interface(struct carp *carp, char *dev_name)
         pr_info("%s: Setting carpdev to %s", carp->dev->name, real_dev->name);
         carp->odev = real_dev;
         carp->link = real_dev->ifindex;
-        in_device  = in_dev_get(real_dev);
-        if (in_device != NULL && in_device->ifa_list != NULL) {
-            carp->iph.saddr = in_device->ifa_list[0].ifa_address;
+        in_dev     = in_dev_get(real_dev);
+        if (in_dev != NULL && in_dev->ifa_list != NULL) {
+            carp->iph.saddr = in_dev->ifa_list[0].ifa_address;
         }
+
+        carp->dev->hard_header_len = real_dev->hard_header_len;
+        carp->dev->mtu = real_dev->mtu;
 
         carp->odev->flags |= IFF_BROADCAST | IFF_ALLMULTI;
         carp->oflags = carp->odev->flags;
+
+    } else {
+        return 1;
     }
 
     return 0;
 }
 
-static void carp_set_run(struct carp *carp)
+void carp_set_run(struct carp *carp, sa_family_t af)
 {
-    struct timeval tv;
-
     if (carp->odev == NULL) {
         dev_change_flags(carp->dev, carp->dev->flags & ~IFF_RUNNING);
         carp_set_state(carp, INIT);
@@ -236,7 +239,26 @@ static void carp_set_run(struct carp *carp)
     }
 
     if (carp->dev->flags & IFF_UP && carp->vhid > 0) {
+        carp->dev->flags |= IFF_RUNNING;
+    } else {
+        carp->dev->flags &= ~IFF_RUNNING;
+        return;
+    }
 
+    switch (carp->state) {
+        case INIT:
+            carp_set_state(carp, BACKUP);
+            carp_set_run(carp, 0);
+            break;
+        case BACKUP:
+            if (timer_pending(&carp->adv_timer))
+                del_timer_sync(&carp->adv_timer);
+            mod_timer(&carp->md_timer, jiffies + carp->md_timeout);
+            break;
+        case MASTER:
+    		if (!timer_pending(&carp->adv_timer))
+    			mod_timer(&carp->adv_timer, jiffies + carp->adv_timeout);
+            break;
     }
 }
 
@@ -265,19 +287,15 @@ void carp_set_state(struct carp *carp, enum carp_state state)
     		if (!timer_pending(&carp->md_timer))
     			mod_timer(&carp->md_timer, jiffies + carp->md_timeout);
     		break;
-    	case INIT:
-    		if (!timer_pending(&carp->md_timer))
-    			mod_timer(&carp->md_timer, jiffies + carp->md_timeout);
+    	default:
     		break;
     }
 }
 
-static void carp_master_down(unsigned long data)
+void carp_master_down(unsigned long data)
 {
     struct carp *carp = (struct carp *)data;
     carp_dbg("%s\n", __func__);
-
-    //log("%s: state=%d.\n", __func__, cp->state);
 
     switch (carp->state) {
         case INIT:
@@ -286,22 +304,15 @@ static void carp_master_down(unsigned long data)
         case MASTER:
             break;
         case BACKUP:
-            break;
-    }
-
-    if (carp->state != MASTER) {
-    	if (test_bit(CARP_DATA_AVAIL, (long *)&carp->flags)) {
-    		if (!timer_pending(&carp->md_timer))
-    			mod_timer(&carp->md_timer, jiffies + carp->md_timeout);
-    	} else {
             carp_set_state(carp, MASTER);
             carp_proto_adv(carp);
-            carp_send_arp(carp);
-            carp->carp_delayed_arp = 2;
-        }
+            //if (carp->balancing == CARP_BAL_NONE) {
+                carp_send_arp(carp);
+                carp->carp_delayed_arp = 2;
+            //}
+            carp_set_run(carp, 0);
+            break;
     }
-
-    clear_bit(CARP_DATA_AVAIL, (long *)&carp->flags);
 }
 
 static int carp_dev_xmit(struct sk_buff *skb, struct net_device *carp_dev)
@@ -488,7 +499,6 @@ static const struct net_device_ops carp_netdev_ops = {
 static void carp_dev_setup(struct net_device *carp_dev)
 {
     int res;
-    struct in_device *in_d;
     struct carp *carp = netdev_priv(carp_dev);
 
     carp_dbg("%s\n", __func__);
@@ -513,39 +523,23 @@ static void carp_dev_setup(struct net_device *carp_dev)
     carp->iph.tos   = 0;
 
     carp->state     = INIT;
-    carp->vhid      = 5;
-
-    // FIXME: this needs improving
-    /* Set the source IP address to the same as eth0 */
-    carp->odev = dev_get_by_name(dev_net(carp_dev), "eth1");
-    if (carp->odev) {
-        carp->link = carp->odev->ifindex;
-        in_d       = in_dev_get(carp->odev);
-
-        if (in_d != NULL && in_d->ifa_list != NULL)
-            carp->iph.saddr = in_d->ifa_list[0].ifa_address;
-    }
+    carp->vhid      = 0;
+    carp->advskew   = 0;
+    carp->advbase   = CARP_DFLTINTV;
+    carp->version   = CARP_VERSION;
 
     /* Setup the carp advertisements */
     memset(carp->carp_key, 1, sizeof(carp->carp_key));
     get_random_bytes(&carp->carp_adv_counter, 8);
 
-    carp->advskew = 0;
-    carp->advbase = CARP_DFLTINTV;
-    carp->version = CARP_VERSION;
-
-    dump_addr_info(carp);
-
     carp->md_timeout  = carp_calculate_timeout(3, carp->advbase, carp->advskew);
     carp->adv_timeout = carp_calculate_timeout(1, carp->advbase, carp->advskew);
 
     init_timer(&carp->md_timer);
-    carp->md_timer.expires   = jiffies + carp->md_timeout;
     carp->md_timer.data      = (unsigned long)carp;
     carp->md_timer.function  = carp_master_down;
 
     init_timer(&carp->adv_timer);
-    carp->adv_timer.expires  = jiffies + carp->adv_timeout;
     carp->adv_timer.data     = (unsigned long)carp;
     carp->adv_timer.function = carp_advertise;
 
@@ -562,7 +556,7 @@ static void carp_dev_setup(struct net_device *carp_dev)
     if (res)
         goto err_out_crypto_free;
 
-    add_timer(&carp->md_timer);
+    //add_timer(&carp->md_timer);
     return;
 
 err_out_crypto_free:
@@ -585,6 +579,9 @@ static int carp_dev_open(struct net_device *carp_dev)
     };
     carp_dbg("%s", __func__);
 
+    if (carp->odev == NULL)
+        return 0;
+
     rt = ip_route_output_key(dev_net(carp_dev), &fl4);
     if (rt == NULL)
         return -EADDRNOTAVAIL;
@@ -596,6 +593,9 @@ static int carp_dev_open(struct net_device *carp_dev)
     carp->mlink = carp_dev->ifindex;
     ip_mc_inc_group(in_dev_get(carp_dev), carp->iph.daddr);
 
+    carp->dev->flags |= IFF_UP;
+    carp_set_run(carp, 0);
+
     return 0;
 }
 
@@ -604,12 +604,20 @@ static int carp_dev_close(struct net_device *carp_dev)
 {
     struct carp *carp = netdev_priv(carp_dev);
     struct in_device *in_dev = inetdev_by_index(dev_net(carp_dev), carp->mlink);
-    carp_dbg("%s", __func__);
 
     if (in_dev) {
     	ip_mc_dec_group(in_dev, carp->iph.daddr);
     	in_dev_put(in_dev);
     }
+
+    carp_del_all_timeouts(carp);
+
+    carp->carp_bow_out = 1;
+    carp_proto_adv(carp);
+    carp->carp_bow_out = 0;
+
+    carp_set_state(carp, INIT);
+
     return 0;
 }
 
@@ -618,14 +626,10 @@ static int carp_dev_close(struct net_device *carp_dev)
  */
 static int carp_dev_init(struct net_device *carp_dev)
 {
-    struct net_device *tdev = NULL;
     struct carp *carp;
     struct iphdr *iph;
-    int hlen = LL_MAX_HEADER;
-    int mtu = 1500;
-    carp_dbg("%s", __func__);
+    carp_dbg("%s\n", __func__);
 
-    log("Begin %s for %s\n", __func__, carp_dev->name);
     carp = netdev_priv(carp_dev);
     iph = &carp->iph;
 
@@ -634,47 +638,15 @@ static int carp_dev_init(struct net_device *carp_dev)
 
     dev_hold(carp_dev);
 
-    carp->dev = carp_dev;
-    strncpy(carp->name, carp_dev->name, IFNAMSIZ);
-
     ip_eth_mc_map(carp->iph.daddr, carp_dev->dev_addr);
     memcpy(carp_dev->broadcast, &iph->daddr, 4);
 
-    {
-        struct flowi4 fl4 = {
-            .flowi4_oif   = carp->link,
-            .daddr        = iph->daddr,
-            .saddr        = iph->saddr,
-            .flowi4_tos   = RT_TOS(iph->tos),
-            .flowi4_proto = IPPROTO_CARP,
-        };
-    	struct rtable *rt;
-
-        rt = ip_route_output_key(dev_net(carp_dev), &fl4);
-        if (!IS_ERR(rt)) {
-    		tdev = rt->dst.dev;
-    		ip_rt_put(rt);
-        }
-    }
-
-    carp->oflags      = carp->odev->flags;
-    carp_dev->flags   |= IFF_BROADCAST | IFF_ALLMULTI;
-    carp->odev->flags |= IFF_BROADCAST | IFF_ALLMULTI;
-
     carp_dev->netdev_ops = &carp_netdev_ops;
 
-    if (!tdev && carp->link)
-    	tdev = __dev_get_by_index(dev_net(carp_dev), carp->link);
+    carp->dev = carp_dev;
+    strncpy(carp->name, carp_dev->name, IFNAMSIZ);
 
-    if (tdev) {
-    	hlen = tdev->hard_header_len;
-    	mtu = tdev->mtu;
-        carp_dev_open(carp->dev);
-    }
-    carp_dev->iflink = carp->link;
-
-    carp_dev->hard_header_len = hlen;
-    carp_dev->mtu = mtu;
+    dump_addr_info(carp);
 
     carp_create_proc_entry(carp);
     carp_prepare_sysfs_group(carp);

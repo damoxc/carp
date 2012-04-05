@@ -122,7 +122,7 @@ out:
     return ret;
 }
 
-static DEVICE_ATTR(adv_base, S_IRUGO | S_IWUSR,
+static DEVICE_ATTR(advbase, S_IRUGO | S_IWUSR,
                    carp_show_adv_base, carp_store_adv_base);
 
 static ssize_t carp_show_adv_skew(struct device *dev,
@@ -163,12 +163,150 @@ out:
     return ret;
 }
 
-static DEVICE_ATTR(adv_skew, S_IRUGO | S_IWUSR,
+static DEVICE_ATTR(advskew, S_IRUGO | S_IWUSR,
                    carp_show_adv_skew, carp_store_adv_skew);
 
+
+static ssize_t carp_show_carpdev(struct device *dev,
+                                  struct device_attribute *attr,
+                                  char *buf)
+{
+    struct carp *carp = to_carp(dev);
+    if (carp->odev != NULL)
+        return sprintf(buf, "%s\n", carp->odev->name);
+    else
+        return sprintf(buf, "(none)\n");
+}
+
+static ssize_t carp_store_carpdev(struct device *dev,
+                                  struct device_attribute *attr,
+                                  const char *buf, ssize_t count)
+{
+    int ret = count;
+    char new_ifname[IFNAMSIZ];
+    struct carp *carp = to_carp(dev);
+
+    if (sscanf(buf, "%s", new_ifname) != 1) {
+        pr_err("%s: no carpdev value specified.\n", carp->name);
+        ret = -EINVAL;
+        goto out;
+    }
+
+    if (carp_set_interface(carp, new_ifname) != 0) {
+        pr_err("%s: unable to set carpdev to %s.\n", carp->name, new_ifname);
+        ret = -EINVAL;
+        goto out;
+    }
+
+out:
+    return ret;
+}
+
+static DEVICE_ATTR(carpdev, S_IRUGO | S_IWUSR,
+                   carp_show_carpdev, carp_store_carpdev);
+
+static ssize_t carp_show_state(struct device *dev,
+                                  struct device_attribute *attr,
+                                  char *buf)
+{
+    struct carp *carp = to_carp(dev);
+    static const char *carp_states[] = { CARP_STATES };
+
+    return sprintf(buf, "%s\n", carp_states[carp->state]);
+}
+
+static ssize_t carp_store_state(struct device *dev,
+                                  struct device_attribute *attr,
+                                  const char *buf, ssize_t count)
+{
+    int ret = count;
+    enum carp_state new_state;
+    char new_state_name[7];
+    struct carp *carp = to_carp(dev);
+
+    if (sscanf(buf, "%s", new_state_name) != 1) {
+        pr_err("%s: no state specified.\n", carp->name);
+        ret = -EINVAL;
+        goto out;
+    }
+
+    if (strnicmp(new_state_name, "MASTER", 7) == 0) {
+        new_state = MASTER;
+    } else if (strnicmp(new_state_name, "BACKUP", 7) == 0) {
+        new_state = BACKUP;
+    } else if (strnicmp(new_state_name, "INIT", 4) == 0) {
+        new_state = INIT;
+    } else {
+        pr_err("%s: invalid state specified.\n", carp->name);
+        ret = -EINVAL;
+        goto out;
+    }
+
+    if (new_state != INIT && new_state != carp->state) {
+        switch (new_state) {
+            case BACKUP:
+                carp_set_state(carp, new_state);
+                carp_set_run(carp, 0);
+                break;
+            case MASTER:
+                carp_master_down((unsigned long)carp);
+                break;
+            default:
+                break;
+        }
+    }
+
+out:
+    return ret;
+}
+
+static DEVICE_ATTR(state, S_IRUGO | S_IWUSR,
+                   carp_show_state, carp_store_state);
+
+static ssize_t carp_show_vhid(struct device *dev,
+                                  struct device_attribute *attr,
+                                  char *buf)
+{
+    struct carp *carp = to_carp(dev);
+    return sprintf(buf, "%d\n", carp->vhid);
+}
+
+static ssize_t carp_store_vhid(struct device *dev,
+                                  struct device_attribute *attr,
+                                  const char *buf, ssize_t count)
+{
+    int new_value, ret = count;
+    struct carp *carp = to_carp(dev);
+
+    if (sscanf(buf, "%d", &new_value) != 1) {
+        pr_err("%s: no vhid value specified.\n", carp->name);
+        ret = -EINVAL;
+        goto out;
+    }
+
+    if (new_value < 0 || new_value > 255) {
+        pr_err("%s: invalid vhid value, %d not in range 1-%d; rejected.\n",
+               carp->name, new_value, 254);
+        ret = -EINVAL;
+        goto out;
+    }
+
+    pr_info("%s: setting vhid to %d.\n", carp->name, new_value);
+    carp->vhid = new_value;
+
+out:
+    return ret;
+}
+
+static DEVICE_ATTR(vhid, S_IRUGO | S_IWUSR,
+                   carp_show_vhid, carp_store_vhid);
+
 static struct attribute *per_carp_attrs[] = {
-    &dev_attr_adv_base.attr,
-    &dev_attr_adv_skew.attr,
+    &dev_attr_advbase.attr,
+    &dev_attr_advskew.attr,
+    &dev_attr_carpdev.attr,
+    &dev_attr_state.attr,
+    &dev_attr_vhid.attr,
     NULL,
 };
 
