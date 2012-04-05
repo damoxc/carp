@@ -120,7 +120,7 @@ struct carp *carp_get_by_vhid(u8 vhid)
 
     list_for_each(ptr, &cn_global->dev_list) {
         entry = list_entry(ptr, struct carp, carp_list);
-        if (entry->hdr.carp_vhid == vhid)
+        if (entry->vhid == vhid)
             return entry;
     }
     return NULL;
@@ -218,12 +218,26 @@ int carp_set_interface(struct carp *carp, char *dev_name)
             carp->iph.saddr = in_device->ifa_list[0].ifa_address;
         }
 
-        carp->odev->flags = carp->oflags;
-        carp->oflags = carp->odev->flags;
         carp->odev->flags |= IFF_BROADCAST | IFF_ALLMULTI;
+        carp->oflags = carp->odev->flags;
     }
 
     return 0;
+}
+
+static void carp_set_run(struct carp *carp)
+{
+    struct timeval tv;
+
+    if (carp->odev == NULL) {
+        dev_change_flags(carp->dev, carp->dev->flags & ~IFF_RUNNING);
+        carp_set_state(carp, INIT);
+        return;
+    }
+
+    if (carp->dev->flags & IFF_UP && carp->vhid > 0) {
+
+    }
 }
 
 void carp_set_state(struct carp *carp, enum carp_state state)
@@ -375,22 +389,22 @@ static int carp_dev_ioctl (struct net_device *carp_dev, struct ifreq *ifr, int c
     		carp_set_state(carp, p.state);
     		memcpy(carp->carp_pad, p.carp_pad, sizeof(carp->carp_pad));
     		memcpy(carp->carp_key, p.carp_key, sizeof(carp->carp_key));
-    		carp->hdr.carp_vhid = p.carp_vhid;
-    		carp->hdr.carp_advbase = p.carp_advbase;
-    		carp->hdr.carp_advskew = p.carp_advskew;
+    		carp->vhid = p.carp_vhid;
+    		carp->advbase = p.carp_advbase;
+    		carp->advskew = p.carp_advskew;
 
-            tv.tv_sec = 3 * carp->hdr.carp_advbase;
-            if (carp->hdr.carp_advbase == 0 && carp->hdr.carp_advskew == 0)
+            tv.tv_sec = 3 * carp->advbase;
+            if (carp->advbase == 0 && carp->advskew == 0)
                 tv.tv_usec = 3 * 1000000 / 256;
             else
-                tv.tv_usec = carp->hdr.carp_advskew * 1000000 / 256;
+                tv.tv_usec = carp->advskew * 1000000 / 256;
             carp->md_timeout  = timeval_to_jiffies(&tv);
 
-            tv.tv_sec = carp->hdr.carp_advbase;
-            if (carp->hdr.carp_advbase == 0 && carp->hdr.carp_advskew == 0)
+            tv.tv_sec = carp->advbase;
+            if (carp->advbase == 0 && carp->advskew == 0)
                 tv.tv_usec = 1 * 1000000 / 256;
             else
-                tv.tv_usec = carp->hdr.carp_advskew * 1000000 / 256;
+                tv.tv_usec = carp->advskew * 1000000 / 256;
             carp->adv_timeout = timeval_to_jiffies(&tv);
 
 
@@ -406,9 +420,9 @@ static int carp_dev_ioctl (struct net_device *carp_dev, struct ifreq *ifr, int c
     		p.state = carp->state;
     		memcpy(p.carp_pad, carp->carp_pad, sizeof(carp->carp_pad));
     		memcpy(p.carp_key, carp->carp_key, sizeof(carp->carp_key));
-    		p.carp_vhid = carp->hdr.carp_vhid;
-    		p.carp_advbase = carp->hdr.carp_advbase;
-    		p.carp_advskew = carp->hdr.carp_advskew;
+    		p.carp_vhid = carp->vhid;
+    		p.carp_advbase = carp->advbase;
+    		p.carp_advskew = carp->advskew;
     		p.md_timeout = carp->md_timeout;
     		p.adv_timeout = carp->adv_timeout;
     		memcpy(p.devname, carp->odev->name, sizeof(p.devname));
@@ -494,12 +508,12 @@ static void carp_dev_setup(struct net_device *carp_dev)
     carp_dev->addr_len        = 4;
 
     /* Initialise carp options */
-    carp->iph.saddr   = addr2val(10, 0, 0, 3);
-    carp->iph.daddr   = MULTICAST_ADDR;
-    carp->iph.tos     = 0;
+    carp->iph.saddr = addr2val(10, 0, 0, 3);
+    carp->iph.daddr = MULTICAST_ADDR;
+    carp->iph.tos   = 0;
 
-    carp->state       = INIT;
-    carp->hdr.carp_vhid = 5;
+    carp->state     = INIT;
+    carp->vhid      = 5;
 
     // FIXME: this needs improving
     /* Set the source IP address to the same as eth0 */
@@ -516,14 +530,14 @@ static void carp_dev_setup(struct net_device *carp_dev)
     memset(carp->carp_key, 1, sizeof(carp->carp_key));
     get_random_bytes(&carp->carp_adv_counter, 8);
 
-    carp->hdr.carp_advskew = 0;
-    carp->hdr.carp_advbase = CARP_DFLTINTV;
-    carp->hdr.carp_version = CARP_VERSION;
+    carp->advskew = 0;
+    carp->advbase = CARP_DFLTINTV;
+    carp->version = CARP_VERSION;
 
     dump_addr_info(carp);
 
-    carp->md_timeout  = carp_calculate_timeout(3, carp->hdr.carp_advbase, carp->hdr.carp_advskew);
-    carp->adv_timeout = carp_calculate_timeout(1, carp->hdr.carp_advbase, carp->hdr.carp_advskew);
+    carp->md_timeout  = carp_calculate_timeout(3, carp->advbase, carp->advskew);
+    carp->adv_timeout = carp_calculate_timeout(1, carp->advbase, carp->advskew);
 
     init_timer(&carp->md_timer);
     carp->md_timer.expires   = jiffies + carp->md_timeout;
@@ -557,6 +571,7 @@ out:
     return;
 }
 
+/* Called when the link state is set to UP */
 static int carp_dev_open(struct net_device *carp_dev)
 {
     struct carp *carp = netdev_priv(carp_dev);
@@ -584,6 +599,7 @@ static int carp_dev_open(struct net_device *carp_dev)
     return 0;
 }
 
+/* Called when the link state is set to DOWN */
 static int carp_dev_close(struct net_device *carp_dev)
 {
     struct carp *carp = netdev_priv(carp_dev);

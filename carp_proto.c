@@ -106,14 +106,14 @@ static int carp_hmac_verify(struct carp *carp, struct carp_header *carp_hdr)
 /*----------------------------- Proto  functions ----------------------------*/
 void carp_proto_adv(struct carp *carp)
 {
-    struct carp_header *ch = &carp->hdr;
+    //struct carp_header *ch = &carp->hdr;
     struct carp_stat *cs = &carp->cstat;
     struct sk_buff *skb;
     int len;
     unsigned short sum;
     struct ethhdr *eth;
     struct iphdr *ip;
-    struct carp_header *c;
+    struct carp_header *ch;
 
     if (carp->state == BACKUP || !carp->odev)
     	return;
@@ -132,7 +132,7 @@ void carp_proto_adv(struct carp *carp)
     skb_reserve(skb, 16);
     eth = (struct ethhdr *) skb_push(skb, 14);
     ip = (struct iphdr *)skb_put(skb, sizeof(struct iphdr));
-    c = (struct carp_header *)skb_put(skb, sizeof(struct carp_header));
+    ch = (struct carp_header *)skb_put(skb, sizeof(struct carp_header));
 
     memset(&(IPCB(skb)->opt), 0, sizeof(IPCB(skb)->opt));
 
@@ -161,6 +161,9 @@ void carp_proto_adv(struct carp *carp)
     ch->carp_version = CARP_VERSION;
     ch->carp_demote  = 0;
     ch->carp_authlen = 7;
+    ch->carp_vhid    = carp->vhid;
+    ch->carp_advbase = carp->advbase;
+    ch->carp_advskew = carp->advskew;
 
     ch->carp_counter[0] = htonl((carp->carp_adv_counter >> 32) & 0xffffffff);
     ch->carp_counter[1] = htonl(carp->carp_adv_counter & 0xffffffff);
@@ -174,7 +177,7 @@ void carp_proto_adv(struct carp *carp)
 
     //dump_carp_header(ch);
 
-    memcpy(c, ch, sizeof(struct carp_header));
+    //memcpy(c, ch, sizeof(struct carp_header));
 
     skb->protocol   = __constant_htons(ETH_P_IP);
     skb->mac_header = (void *)eth;
@@ -216,7 +219,7 @@ static int carp_proto_rcv_ip4(struct sk_buff *skb)
     struct carp_header *carp_hdr;
 
     iph = ip_hdr(skb);
-    //carp_dbg("carp: received packet (saddr=%pI4)\n", &(iph->saddr));
+    carp_dbg("carp: received packet (saddr=%pI4)\n", &(iph->saddr));
 
     // TODO: implement greater packet verification checks here
 
@@ -237,26 +240,25 @@ static int carp_proto_rcv(struct carp_header *carp_hdr)
     int err = 0;
     struct carp *carp;
     u64 tmp_counter;
-    struct timeval carp_tv, carp_hdr_tv;
+    struct timeval c_tv, ch_tv;
 
     carp = carp_get_by_vhid(carp_hdr->carp_vhid);
     if (carp == NULL)
         return err;
 
-    //dump_carp_header(carp_hdr);
+    dump_carp_header(carp_hdr);
 
     spin_lock(&carp->lock);
 
-    if (carp_hdr->carp_version != carp->hdr.carp_version)
-    {
+    if (carp_hdr->carp_version != CARP_VERSION) {
     	carp_dbg("%s: version mismatch: remote=%d, local=%d.\n",
-    		carp->name, carp_hdr->carp_version, carp->hdr.carp_version);
+    		carp->name, carp_hdr->carp_version, CARP_VERSION);
     	carp->cstat.ver_errors++;
     	goto err_out;
     }
 
-    if (carp_hmac_verify(carp, carp_hdr))
-    {
+    /* verify the hash */
+    if (carp_hmac_verify(carp, carp_hdr)) {
     	carp_dbg("%s: HMAC mismatch on received advertisement.\n", carp->name);
     	carp->cstat.hmac_errors++;
     	goto err_out;
@@ -273,14 +275,14 @@ static int carp_proto_rcv(struct carp_header *carp_hdr)
     	goto err_out;
     }
 
-    carp_tv.tv_sec = carp->hdr.carp_advbase;
-    if (carp->hdr.carp_advbase <  240)
-    	carp_tv.tv_usec = 240 * 1000000 / 256;
+    c_tv.tv_sec = carp->advbase;
+    if (carp->advbase == 0 && carp->advskew == 0)
+    	c_tv.tv_usec = 1 * 1000000 / 256;
     else
-    	carp_tv.tv_usec = carp->hdr.carp_advskew * 1000000 / 256;
+    	c_tv.tv_usec = carp->advskew * 1000000 / 256;
 
-    carp_hdr_tv.tv_sec = carp_hdr->carp_advbase;
-    carp_hdr_tv.tv_usec = carp_hdr->carp_advskew * 1000000 / 256;
+    ch_tv.tv_sec = carp_hdr->carp_advbase;
+    ch_tv.tv_usec = carp_hdr->carp_advskew * 1000000 / 256;
 
     /*carp_dbg("local=%lu.%lu, remote=%lu.%lu, lcounter=%llu, remcounter=%llu, state=%d\n",
     		carptv.tv_sec, carptv.tv_usec,
@@ -290,29 +292,39 @@ static int carp_proto_rcv(struct carp_header *carp_hdr)
     */
     set_bit(CARP_DATA_AVAIL, (long *)&carp->flags);
 
-    switch (carp->state)
-    {
+    switch (carp->state) {
     	case INIT:
-    		if (timeval_before(&carp_hdr_tv, &carp_tv))
-    		{
+            // FIXME: should be break; now
+    		if (timeval_before(&ch_tv, &c_tv)) {
     			carp->carp_adv_counter = tmp_counter;
     			carp_set_state(carp, BACKUP);
-    		}
-    		else
-    		{
+    		} else {
     			carp_set_state(carp, MASTER);
     		}
     		break;
     	case MASTER:
-    		if (timeval_before(&carp_hdr_tv, &carp_tv))
-    		{
+    		if (timeval_before(&ch_tv, &c_tv)) {
     			carp->carp_adv_counter = tmp_counter;
     			carp_set_state(carp, BACKUP);
     		}
     		break;
     	case BACKUP:
-    		if (timeval_before(&carp_tv, &carp_hdr_tv))
-    		{
+
+#if 0
+            if (carp_preempt && timeval_before(&c_tv, &ch_tv) &&
+                carp_hdr->carp_demote >= carp_demote_count(carp)) {
+    			carp_set_state(carp, MASTER);
+                break;
+            }
+
+            if (carp_hdr->carp_demote > carp_demote_count(carp)) {
+    			carp_set_state(carp, MASTER);
+                break;
+            }
+#endif
+
+            c_tv.tv_sec = carp->advbase * 3;
+            if (carp->advbase && timeval_before(&c_tv, &ch_tv)) {
     			carp_set_state(carp, MASTER);
     		}
     		break;

@@ -151,8 +151,13 @@ struct carp {
 	u32                     md_timeout, adv_timeout;
 	struct timer_list       md_timer, adv_timer;
 
+    /* carp params */
+    u8                      vhid;
+    u8                      advbase;
+    u8                      advskew;
+    u8                      version;
+
 	enum carp_state         state;
-	struct carp_header      hdr;
 	struct carp_stat        cstat;
 
 	u8                      carp_key[CARP_KEY_LEN];

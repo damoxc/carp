@@ -5,7 +5,8 @@ rough and based off of the code found from the netdev mailing list circa
 A rough plan is:
 
  - Add sysfs and procfs interfaces
- - Add the group demote stuff that obsd CARP has
+ - Add the demote stuff that obsd CARP has
+ - Change the INIT state so it acts correctly.
  - Allow a carp interface to be started without a backing device
  - Ensure everything is async
 

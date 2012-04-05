@@ -62,15 +62,14 @@ static int carp_info_seq_show(struct seq_file *seq, void *v)
 {
     struct carp *carp = seq->private;
     struct carp_stat *carp_stat = &(carp->cstat);
-    struct carp_header *carp_hdr = &(carp->hdr);
 
     seq_printf(seq, "%s\n", DRV_DESC);
     seq_printf(seq, "State: %s\n", carp_state_fmt(carp));
     seq_printf(seq, "Device: %s\n", carp->odev->name);
     seq_printf(seq, "Bytes Sent: %d\n", carp_stat->bytes_sent);
-    seq_printf(seq, "VHID: %d\n", carp_hdr->carp_vhid);
-    seq_printf(seq, "Adv Base: %d\n", carp_hdr->carp_advbase);
-    seq_printf(seq, "Adv Skew: %d\n", carp_hdr->carp_advskew);
+    seq_printf(seq, "VHID: %d\n", carp->vhid);
+    seq_printf(seq, "Adv Base: %d\n", carp->advbase);
+    seq_printf(seq, "Adv Skew: %d\n", carp->advskew);
     seq_printf(seq, "CRC Errors: %d\n", carp_stat->crc_errors);
     seq_printf(seq, "HMAC Errors: %d\n", carp_stat->hmac_errors);
     seq_printf(seq, "Ver Errors: %d\n", carp_stat->ver_errors);

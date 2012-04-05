@@ -89,7 +89,7 @@ static ssize_t carp_show_adv_base(struct device *dev,
                                   char *buf)
 {
     struct carp *carp = to_carp(dev);
-    return sprintf(buf, "%d\n", carp->hdr.carp_advbase);
+    return sprintf(buf, "%d\n", carp->advbase);
 }
 
 static ssize_t carp_store_adv_base(struct device *dev,
@@ -113,10 +113,10 @@ static ssize_t carp_store_adv_base(struct device *dev,
     }
 
     pr_info("%s: setting advertisement base to %d.\n", carp->name, new_value);
-    carp->hdr.carp_advbase = new_value;
+    carp->advbase = new_value;
 
-    carp->md_timeout  = carp_calculate_timeout(3, new_value, carp->hdr.carp_advskew);
-    carp->adv_timeout = carp_calculate_timeout(1, new_value, carp->hdr.carp_advskew);
+    carp->md_timeout  = carp_calculate_timeout(3, new_value, carp->advskew);
+    carp->adv_timeout = carp_calculate_timeout(1, new_value, carp->advskew);
 
 out:
     return ret;
@@ -130,7 +130,7 @@ static ssize_t carp_show_adv_skew(struct device *dev,
                                   char *buf)
 {
     struct carp *carp = to_carp(dev);
-    return sprintf(buf, "%d\n", carp->hdr.carp_advskew);
+    return sprintf(buf, "%d\n", carp->advskew);
 }
 
 static ssize_t carp_store_adv_skew(struct device *dev,
@@ -154,10 +154,10 @@ static ssize_t carp_store_adv_skew(struct device *dev,
     }
 
     pr_info("%s: setting advertisement skew to %d.\n", carp->name, new_value);
-    carp->hdr.carp_advskew = new_value;
+    carp->advskew = new_value;
 
-    carp->md_timeout  = carp_calculate_timeout(3, carp->hdr.carp_advbase, new_value);
-    carp->adv_timeout = carp_calculate_timeout(1, carp->hdr.carp_advbase, new_value);
+    carp->md_timeout  = carp_calculate_timeout(3, carp->advbase, new_value);
+    carp->adv_timeout = carp_calculate_timeout(1, carp->advbase, new_value);
 
 out:
     return ret;
